@@ -1,0 +1,39 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.local.json
+
+# Private planning notes
+/private/
+
+# Customer data, login sessions and backups
+/data/
+/backups/
+/logs/
+/sessions/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.log
+
+# Downloaded installers, models and adapters
+/resources/
+*.gguf
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
