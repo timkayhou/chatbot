@@ -17,6 +17,7 @@ import time
 import threading
 from urllib.parse import parse_qs, urlparse
 
+from .adapters import STATE_LABELS, ConnectionManager
 from .channels import load_channels
 from .guard import GuardPolicy, check_text
 from .inference import GenerationUnavailable, generate_draft
@@ -38,6 +39,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     inference_api_key = ""
     inference_backend = "local"
     soak_log = Path("data/soak-sycl-15m.out.log")
+    connection_manager = ConnectionManager()
 
     def _json(self, status: int, value: object) -> None:
         body = json.dumps(value, ensure_ascii=False).encode()
@@ -159,7 +161,24 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/channels":
-            self._json(HTTPStatus.OK, {"channels": self.store.list_channels(), "mode": "mock"})
+            channels = self.store.list_channels()
+            probed = self.connection_manager.probe()
+            for channel in channels:
+                status = probed.get(channel["id"])
+                if status is not None:
+                    channel["state"] = status.state
+                    channel["detail"] = status.detail
+                    channel["client_version"] = status.client_version or channel.get("client_version", "")
+                    channel["adapter"] = status.adapter or channel.get("adapter", "")
+                    channel["read_ok"] = status.read_ok
+                    channel["last_read_at"] = status.last_read_at or channel.get("last_read_at")
+                else:
+                    simulated = channel["connection"] == "mock"
+                    channel["state"] = "simulated" if simulated else channel["connection"]
+                    channel["detail"] = "模拟环境，不连接真实账号" if simulated else ""
+                    channel["read_ok"] = channel["read_capability"] == "read_ok"
+                channel["state_label"] = STATE_LABELS.get(channel["state"], channel["state"])
+            self._json(HTTPStatus.OK, {"channels": channels, "mode": "mock"})
             return
         if path == "/api/conversations":
             channel = (parse_qs(query).get("channel") or [None])[0]
@@ -458,6 +477,7 @@ def create_server(
     inference_backend: str = "local",
     soak_log: str | Path = "data/soak-sycl-15m.out.log",
     channels: list[dict] | None = None,
+    adapters: list | None = None,
 ) -> ThreadingHTTPServer:
     store = Store(database)
     store.sync_channels(channels if channels is not None else load_channels())
@@ -470,6 +490,7 @@ def create_server(
             "inference_api_key": inference_api_key,
             "inference_backend": inference_backend,
             "soak_log": Path(soak_log),
+            "connection_manager": ConnectionManager.from_list(adapters),
         },
     )
     return ThreadingHTTPServer(("127.0.0.1", port), handler)

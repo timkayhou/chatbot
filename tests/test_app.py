@@ -75,6 +75,12 @@ class AppTests(unittest.TestCase):
         store.add_message(conversation, "in", inbound, "mock")
         return conversation
 
+    def test_channels_report_connection_state(self):
+        channels = self.get("/api/channels")["channels"]
+        self.assertEqual("simulated", channels[0]["state"])
+        self.assertEqual("模拟", channels[0]["state_label"])
+        self.assertTrue(channels[0]["detail"])
+
     def test_status_includes_alerts(self):
         data = self.get("/api/status")
         self.assertIn("alerts", data)

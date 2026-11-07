@@ -85,7 +85,13 @@ CREATE TABLE IF NOT EXISTS channels (
   skin TEXT NOT NULL DEFAULT 'plain',
   sort_order INTEGER NOT NULL DEFAULT 0,
   connection TEXT NOT NULL DEFAULT 'mock',
-  enabled INTEGER NOT NULL DEFAULT 1
+  enabled INTEGER NOT NULL DEFAULT 1,
+  client_version TEXT NOT NULL DEFAULT '',
+  adapter TEXT NOT NULL DEFAULT '',
+  read_capability TEXT NOT NULL DEFAULT 'unknown',
+  send_capability TEXT NOT NULL DEFAULT 'blocked',
+  last_read_at TEXT,
+  last_message_at TEXT
 );
 CREATE TABLE IF NOT EXISTS customers (
   id INTEGER PRIMARY KEY,
@@ -152,6 +158,18 @@ class Store:
         message_columns = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
         if "source" not in message_columns:
             connection.execute("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'inbound'")
+        channel_columns = {row[1] for row in connection.execute("PRAGMA table_info(channels)")}
+        channel_additions = {
+            "client_version": "TEXT NOT NULL DEFAULT ''",
+            "adapter": "TEXT NOT NULL DEFAULT ''",
+            "read_capability": "TEXT NOT NULL DEFAULT 'unknown'",
+            "send_capability": "TEXT NOT NULL DEFAULT 'blocked'",
+            "last_read_at": "TEXT",
+            "last_message_at": "TEXT",
+        }
+        for name, definition in channel_additions.items():
+            if name not in channel_columns:
+                connection.execute(f"ALTER TABLE channels ADD COLUMN {name} {definition}")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -381,12 +399,100 @@ class Store:
     def list_channels(self) -> list[dict]:
         with self.connect() as db:
             rows = db.execute(
-                "SELECT ch.id,ch.name,ch.accent,ch.skin,ch.sort_order,ch.connection,"
+                "SELECT ch.*,"
                 "(SELECT COUNT(*) FROM conversations c WHERE c.channel_id=ch.id) AS conversations,"
                 "(SELECT COALESCE(SUM(c.unread),0) FROM conversations c WHERE c.channel_id=ch.id) AS unread "
                 "FROM channels ch WHERE ch.enabled=1 ORDER BY ch.sort_order,ch.id"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def set_channel_connection(
+        self,
+        channel_id: str,
+        *,
+        state: str,
+        detail: str = "",
+        client_version: str = "",
+        adapter: str = "",
+        read_ok: bool = False,
+        last_read_at: str | None = None,
+    ) -> None:
+        with self.connect() as db:
+            db.execute(
+                "UPDATE channels SET connection=?,client_version=?,adapter=?,"
+                "read_capability=?,send_capability='blocked',last_read_at=COALESCE(?,last_read_at) WHERE id=?",
+                (state, client_version, adapter, "read_ok" if read_ok else "unknown", last_read_at, channel_id),
+            )
+
+    def ingest_messages(self, channel_id: str, messages: list[dict]) -> int:
+        """Insert adapter messages idempotently. Read-only: the adapter never sends."""
+        inserted = 0
+        now = utc_now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for item in messages:
+                external_id = str(item["external_id"])[:120]
+                body = str(item["body"]).strip()
+                if not body:
+                    continue
+                message_id = str(item.get("message_id") or item.get("external_message_id") or body)
+                dedupe_key = f"adapter:{message_id}"[:200]
+                locale = str(item.get("locale") or "zh-CN")
+                name = str(item.get("customer_name") or external_id)[:120]
+                occurred_at = str(item.get("occurred_at") or now)
+
+                customer = db.execute(
+                    "SELECT id FROM customers WHERE channel_id=? AND external_id=?",
+                    (channel_id, external_id),
+                ).fetchone()
+                if customer is None:
+                    customer_id = db.execute(
+                        "INSERT INTO customers(channel_id,external_id,display_name,avatar,locale,created_at) "
+                        "VALUES(?,?,?,?,?,?) RETURNING id",
+                        (channel_id, external_id, name, name[:1].upper(), locale, now),
+                    ).fetchone()[0]
+                    conversation_id = db.execute(
+                        "INSERT INTO conversations(label,language,channel_id,customer_id,created_at,updated_at) "
+                        "VALUES(?,?,?,?,?,?) RETURNING id",
+                        (name, locale, channel_id, customer_id, now, now),
+                    ).fetchone()[0]
+                else:
+                    customer_id = int(customer[0])
+                    row = db.execute(
+                        "SELECT id FROM conversations WHERE channel_id=? AND customer_id=? ORDER BY id LIMIT 1",
+                        (channel_id, customer_id),
+                    ).fetchone()
+                    conversation_id = (
+                        int(row[0])
+                        if row
+                        else db.execute(
+                            "INSERT INTO conversations(label,language,channel_id,customer_id,created_at,updated_at) "
+                            "VALUES(?,?,?,?,?,?) RETURNING id",
+                            (name, locale, channel_id, customer_id, now, now),
+                        ).fetchone()[0]
+                    )
+                exists = db.execute(
+                    "SELECT 1 FROM messages WHERE conversation_id=? AND dedupe_key=?",
+                    (conversation_id, dedupe_key),
+                ).fetchone()
+                if exists:
+                    continue
+                db.execute(
+                    "INSERT INTO messages(conversation_id,direction,body,dedupe_key,created_at,source) "
+                    "VALUES(?,'in',?,?,?,'adapter')",
+                    (conversation_id, body, dedupe_key, occurred_at),
+                )
+                db.execute(
+                    "UPDATE conversations SET unread=unread+1,updated_at=? WHERE id=?",
+                    (occurred_at, conversation_id),
+                )
+                inserted += 1
+            db.execute(
+                "UPDATE channels SET last_read_at=?,last_message_at=CASE WHEN ? THEN ? ELSE last_message_at END WHERE id=?",
+                (now, inserted > 0, now, channel_id),
+            )
+            db.commit()
+        return inserted
 
     def upsert_customer(
         self,
