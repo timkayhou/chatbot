@@ -61,12 +61,28 @@ $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\rotate_logs.py
 - 运行日志写入 `data/logs/workbench.log`，按 2 MB × 5 轮转。
 - 权限不足时，启动项会退回当前用户的“启动”文件夹，维护脚本仍可手动运行。
 
+## 真实渠道（只读）
+
+每个平台通过 `src/workbench/adapters.py` 的只读适配器接入：适配器只能 `probe()` 连接状态和读取消息，接口中不提供发送方法。连接状态分为未安装、未启动、未登录、已登录、读取正常、发送受限、需要人工、异常和模拟，运行中心会逐个渠道显示。
+
+真实适配器属于本地私有代码，放在 `private/`，不进入公开仓库；未注册适配器的渠道保持“模拟”状态。采集到的消息通过 `Store.ingest_messages` 幂等写入，重复读取不会产生重复消息。
+
 ## 测试
 
 ```powershell
 $env:PYTHONPATH = "src"
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+四语言抽检（每语言 30 条语言跟随 + 30 条实体保真，共 240 次本地调用）：
+
+```powershell
+$env:PYTHONPATH = "src"
+$env:V3_API_KEY = "<本地推理密钥>"
+.venv\Scripts\python.exe scripts\v3_language_check.py --run
+```
+
+结果写入 `data/v3-report.json` 和 `data/v3-report.md`。
 
 图片只在本机内存中分析，数据库保存文件摘要、OCR 文本和二维码结果，不保存图片本体。特定平台的规则词典属于本地私有配置，不进入公开仓库。
 
