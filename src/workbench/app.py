@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .adapters import STATE_LABELS, ConnectionManager
 from .channels import load_channels
+from .entities import missing_entities
 from .guard import GuardPolicy, check_text
 from .inference import GenerationUnavailable, generate_draft
 from .maintenance import backup_age_hours, maybe_backup, rotate_logs
@@ -87,6 +88,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _draft(self, inbound: str, language: str) -> dict:
         """FAQ first, model second; either way only a draft is returned."""
         faq = self.store.match_faq(inbound, language)
+        reference: str | None = None
         if faq and faq.get("language_supported"):
             result: dict = {"draft": faq["answer"], "seconds": 0.0, "tokens": 0}
             source = "faq"
@@ -105,6 +107,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         result["source"] = source
         result["faq"] = faq
         result["sent"] = False
+        if reference:
+            missing = missing_entities(reference, result["draft"])
+            if missing:
+                result["entity_warnings"] = missing
         return result
 
     # --- read-only API ---------------------------------------------------

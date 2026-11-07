@@ -144,6 +144,20 @@ class AppTests(unittest.TestCase):
         self.assertEqual("ai", result["source"])
         self.assertEqual("建议先检查启动项和磁盘占用。", result["draft"])
 
+    def test_conversation_suggest_warns_on_changed_entities(self):
+        conversation = self.make_conversation("电池更换报价是多少？")
+        self.store().create_faq(
+            question="电池更换报价是多少？",
+            answer="电池更换费用为 ¥299。",
+            languages=["en"],
+            reviewed=True,
+        )
+        suggestion = {"draft": "电池更换费用为 299 元。", "seconds": 0.4, "tokens": 12}
+        with patch("workbench.app.generate_draft", return_value=suggestion):
+            result = self.post(f"/api/conversations/{conversation}/suggest", {})
+        self.assertEqual("ai", result["source"])
+        self.assertIn("¥299", result["entity_warnings"])
+
     def test_faq_crud_and_candidates(self):
         created = self.post("/api/faq", {"question": "到店要带什么？", "answer": "带设备和电源。", "languages": ["zh-CN"]})
         faq_id = created["id"]

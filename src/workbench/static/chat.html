@@ -231,8 +231,10 @@ async function suggest() {
     $('input').value = r.draft;
     $('input').focus();
     const source = r.source === 'faq' ? `引用 FAQ #${r.faq.id}` : `本地模型 ${r.seconds} 秒`;
-    const warn = r.guard && r.guard.verdict !== 'pass' ? ` · 预检拦截：${r.guard.hits.map(h => h.rule).join(', ')}` : '';
-    $('draftInfo').textContent = `${source}${warn} · 请人工修改后再发送（模拟）`;
+    const warnings = [];
+    if (r.guard && r.guard.verdict !== 'pass') warnings.push(`预检拦截：${r.guard.hits.map(h => h.rule).join(', ')}`);
+    if (r.entity_warnings && r.entity_warnings.length) warnings.push(`实体可能被改写：${r.entity_warnings.join('、')}`);
+    $('draftInfo').textContent = `${source}${warnings.length ? ' · ' + warnings.join(' · ') : ''} · 请人工修改后再发送（模拟）`;
   } catch (error) { $('draftInfo').textContent = '生成失败：' + error.message; }
   finally { button.disabled = false; }
 }
