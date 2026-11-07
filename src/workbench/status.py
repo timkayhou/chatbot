@@ -84,12 +84,18 @@ def inference_test(base_url: str, api_key: str) -> dict:
 
 
 def readiness(soak: dict, inference: dict, backend: str = "local") -> dict:
+    drafting_ready = inference["state"] == "ready"
     items = [
         {"id": "workbench", "label": "本地人工工作台", "state": "ready", "detail": "粘贴、校验、批准和复制可用"},
         {"id": "guard", "label": "发送规则校验", "state": "ready", "detail": "文字、OCR 与二维码检查已接入"},
         {"id": "inference", "label": "本地 AI 服务", "state": inference["state"], "detail": f"{backend} · {inference['detail']}"},
         {"id": "soak", "label": f"15 分钟稳定性（{backend}）", "state": soak["state"], "detail": f"{soak['runs']} 次请求，{soak['failures']} 次失败"},
-        {"id": "drafting", "label": "AI 自动生成草稿", "state": "todo", "detail": "尚未连接工作台与本地模型"},
+        {
+            "id": "drafting",
+            "label": "AI 生成草稿",
+            "state": "ready" if drafting_ready else "attention",
+            "detail": "本地模型起草，人工编辑与校验" if drafting_ready else "需要本地 AI 服务在线",
+        },
         {"id": "faq", "label": "FAQ 知识库", "state": "todo", "detail": "尚未建立已审核业务答案"},
         {"id": "channels", "label": "真实消息渠道", "state": "todo", "detail": "尚未接入账号、采集器或官方接口"},
         {"id": "operations", "label": "长期运行保障", "state": "todo", "detail": "开机启动、备份、恢复和告警待实现"},

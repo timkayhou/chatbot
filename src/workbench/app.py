@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .guard import GuardPolicy, check_text
+from .inference import GenerationUnavailable, generate_draft
 from .media import MediaUnavailable, analyze_image
 from .store import Store
 from .status import inference_health, inference_test, parse_soak_log, readiness
@@ -28,7 +29,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     inference_url = "http://127.0.0.1:8081"
     inference_api_key = ""
     inference_backend = "local"
-    soak_log = Path("data/soak-vulkan-15m.out.log")
+    soak_log = Path("data/soak-sycl-15m.out.log")
 
     def _json(self, status: int, value: object) -> None:
         body = json.dumps(value, ensure_ascii=False).encode()
@@ -97,6 +98,16 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             if self.path == "/api/system/inference-test":
                 result = inference_test(self.inference_url, self.inference_api_key)
                 self._json(HTTPStatus.OK if result["state"] == "passed" else HTTPStatus.SERVICE_UNAVAILABLE, result)
+                return
+            if self.path == "/api/suggest":
+                inbound = str(data["inbound"]).strip()
+                language = str(data.get("language", "zh-CN"))
+                try:
+                    result = generate_draft(self.inference_url, self.inference_api_key, inbound, language)
+                except GenerationUnavailable as error:
+                    self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(error)})
+                    return
+                self._json(HTTPStatus.OK, {**result, "mode": "suggested", "sent": False})
                 return
             if self.path.startswith("/api/drafts/"):
                 parts = urlparse(self.path).path.strip("/").split("/")
@@ -168,7 +179,7 @@ def create_server(
     inference_url: str = "http://127.0.0.1:8081",
     inference_api_key: str = "",
     inference_backend: str = "local",
-    soak_log: str | Path = "data/soak-vulkan-15m.out.log",
+    soak_log: str | Path = "data/soak-sycl-15m.out.log",
 ) -> ThreadingHTTPServer:
     handler = type(
         "BoundWorkbenchHandler",
@@ -195,7 +206,7 @@ def main() -> None:
         inference_url=os.environ.get("WORKBENCH_INFERENCE_URL", "http://127.0.0.1:8081"),
         inference_api_key=os.environ.get("WORKBENCH_INFERENCE_API_KEY", ""),
         inference_backend=os.environ.get("WORKBENCH_INFERENCE_BACKEND", "local"),
-        soak_log=os.environ.get("WORKBENCH_SOAK_LOG", "data/soak-vulkan-15m.out.log"),
+        soak_log=os.environ.get("WORKBENCH_SOAK_LOG", "data/soak-sycl-15m.out.log"),
     )
     print("Manual-send workbench: http://127.0.0.1:8765")
     server.serve_forever()
