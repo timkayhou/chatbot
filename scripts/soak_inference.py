@@ -21,7 +21,17 @@ def main() -> None:
     parser.add_argument("--tokens", type=int, default=64)
     parser.add_argument("--heartbeat", type=int, default=60)
     parser.add_argument("--api-key")
+    parser.add_argument("--log", help="also append UTF-8 JSON lines to this file")
     args = parser.parse_args()
+
+    log = open(args.log, "w", encoding="utf-8") if args.log else None
+
+    def emit(event: dict) -> None:
+        line = json.dumps(event, ensure_ascii=False)
+        print(line, flush=True)
+        if log:
+            log.write(line + "\n")
+            log.flush()
 
     context = "你是本地电脑维修客服。只根据已审核资料回答，不承诺未确认的价格或时间。" * 18
     scenarios = (
@@ -62,21 +72,18 @@ def main() -> None:
             latencies.append(elapsed)
         except Exception as error:  # keep the soak running to measure recovery
             failures += 1
-            print(json.dumps({"event": "failure", "run": run, "error": str(error)}), flush=True)
+            emit({"event": "failure", "run": run, "error": str(error)})
 
         now = time.monotonic()
         if now >= next_heartbeat:
-            print(
-                json.dumps(
-                    {
-                        "event": "heartbeat",
-                        "elapsed_seconds": round(now - started),
-                        "runs": run,
-                        "failures": failures,
-                        "last_seconds": round(latencies[-1], 3) if latencies else None,
-                    }
-                ),
-                flush=True,
+            emit(
+                {
+                    "event": "heartbeat",
+                    "elapsed_seconds": round(now - started),
+                    "runs": run,
+                    "failures": failures,
+                    "last_seconds": round(latencies[-1], 3) if latencies else None,
+                }
             )
             next_heartbeat = now + args.heartbeat
 
@@ -90,7 +97,9 @@ def main() -> None:
         "p95_seconds": round(percentile(latencies, 0.95), 3) if latencies else None,
         "max_seconds": round(max(latencies), 3) if latencies else None,
     }
-    print(json.dumps(summary), flush=True)
+    emit(summary)
+    if log:
+        log.close()
     raise SystemExit(1 if failures else 0)
 
 
