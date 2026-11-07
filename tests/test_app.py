@@ -84,9 +84,18 @@ class AppTests(unittest.TestCase):
         self.assertEqual("suggested", result["mode"])
         self.assertFalse(result["sent"])
         self.assertEqual("您好，请先重启路由器。", result["draft"])
+        self.assertEqual("pass", result["guard"]["verdict"])
         self.assertEqual(0, self.draft_count())
         self.assertEqual("上不了网", mocked.call_args.args[2])
         self.assertEqual("zh-CN", mocked.call_args.args[3])
+
+    def test_suggest_prechecks_generated_text(self):
+        suggestion = {"draft": "请访问 https://bad.example/path", "seconds": 1.0, "tokens": 10}
+        with patch("workbench.app.generate_draft", return_value=suggestion):
+            result = self.post("/api/suggest", {"inbound": "怎么联系", "language": "zh-CN"})
+        self.assertEqual("block", result["guard"]["verdict"])
+        self.assertIn("external.url", [hit["rule"] for hit in result["guard"]["hits"]])
+        self.assertEqual(0, self.draft_count())
 
     def test_suggest_requires_inbound(self):
         status, _ = self.post_error("/api/suggest", {"language": "zh-CN"})

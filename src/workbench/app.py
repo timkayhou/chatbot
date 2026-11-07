@@ -107,6 +107,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 except GenerationUnavailable as error:
                     self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(error)})
                     return
+                check = check_text(result["draft"], self.policy)
+                result["guard"] = {"verdict": check.verdict, "hits": [hit.__dict__ for hit in check.hits]}
                 self._json(HTTPStatus.OK, {**result, "mode": "suggested", "sent": False})
                 return
             if self.path.startswith("/api/drafts/"):
