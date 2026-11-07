@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FAQ 知识库</title>
+<style>
+  :root{font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#172033;background:#eef2f8;--line:#e4e8f0;--muted:#68758b}
+  *{box-sizing:border-box}body{margin:0}
+  header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;background:#fff;border-bottom:1px solid var(--line)}
+  header.top h1{font-size:20px;margin:0}.links{display:flex;gap:8px;align-items:center;font-size:14px}
+  a.link{color:#2f5fe0;text-decoration:none;padding:6px 10px;border-radius:8px}a.link:hover{background:#f0f3fa}
+  .badge{background:#e8f2ff;color:#1f4bb8;padding:5px 10px;border-radius:99px;font-weight:650;font-size:13px}
+  main{max-width:1120px;margin:0 auto;padding:20px 24px 60px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}
+  .stat small{color:var(--muted)}.stat strong{display:block;font-size:26px;margin-top:6px}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px;box-shadow:0 10px 30px #1d2b4b0f}
+  .panel h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .toolbar input[type=search]{flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit}
+  button{cursor:pointer;font:inherit}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 13px;font-weight:600;font-size:13px}
+  .btn.primary{background:#2f5fe0;border-color:#2f5fe0;color:#fff}
+  .btn.good{background:#0f9d58;border-color:#0f9d58;color:#fff}
+  .btn.danger{color:#a02a1e;border-color:#f1c4bd;background:#fff6f4}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .candidate{border:1px solid #f0dcc0;background:#fffaf1;border-radius:12px;padding:14px;margin-bottom:10px}
+  .candidate .q{font-weight:650;margin-bottom:6px}.candidate .a{font-size:13px;color:#41506a;white-space:pre-wrap}
+  .candidate .meta{font-size:12px;color:var(--muted);margin-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+  .candidate .actions{display:flex;gap:8px;margin-top:10px}
+  .faq-item{border-top:1px solid #f0f3f8;padding:14px 0;display:grid;grid-template-columns:1fr auto;gap:12px}
+  .faq-item:first-of-type{border-top:0}
+  .faq-item .q{font-weight:650;margin-bottom:5px}
+  .faq-item .a{font-size:13px;color:#41506a;white-space:pre-wrap}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{background:#eef3ff;color:#2f5fe0;border-radius:999px;padding:2px 9px;font-size:11px}
+  .chip.pending{background:#fff1d6;color:#8a5a00}.chip.ok{background:#e3f7ec;color:#12603a}
+  .faq-actions{display:flex;flex-direction:column;gap:7px;align-items:stretch;min-width:96px}
+  .empty{color:#8a94a6;font-size:13px;text-align:center;padding:18px}
+  dialog{border:0;border-radius:16px;padding:0;width:min(680px,92vw);box-shadow:0 30px 80px #10131a44}
+  dialog::backdrop{background:#10131a66}
+  .dialog-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+  .dialog-head h2{margin:0;font-size:18px}
+  .dialog-body{padding:18px 20px;max-height:66vh;overflow:auto}
+  .dialog-foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+  label.field{display:block;margin:12px 0 6px;font-weight:600;font-size:13px}
+  input[type=text],textarea,select{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px}
+  textarea{min-height:90px;resize:vertical}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .checks{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13px}
+  .checks label{display:flex;gap:6px;align-items:center}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#182031;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:80vw}
+  .toast.show{opacity:1}
+  @media (max-width:720px){.grid2{grid-template-columns:1fr}.stats{grid-template-columns:1fr}.faq-item{grid-template-columns:1fr}.faq-actions{flex-direction:row;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>FAQ 知识库</h1>
+  <div class="links"><span class="badge">人工审核后才可引用</span><a class="link" href="/">运行中心</a><a class="link" href="/chat">模拟消息</a></div>
+</header>
+<main>
+  <div class="stats">
+    <div class="stat"><small>FAQ 条目</small><strong id="statTotal">0</strong></div>
+    <div class="stat"><small>已审核</small><strong id="statApproved">0</strong></div>
+    <div class="stat"><small>待处理候选</small><strong id="statPending">0</strong></div>
+  </div>
+
+  <section class="panel">
+    <h2>历史聊天候选 <span style="font-size:12px;color:var(--muted);font-weight:400">同一问题+人工回复出现至少 2 次才会生成</span></h2>
+    <div class="toolbar">
+      <button class="btn primary" id="buildCandidates">从历史聊天生成候选</button>
+      <span style="font-size:12px;color:var(--muted)">候选只是草稿，采用后仍需人工审核。</span>
+    </div>
+    <div id="candidates"><div class="empty">暂无候选</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>知识库</h2>
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="搜索问题、相似问法或答案…">
+      <button class="btn primary" id="newFaq">新增 FAQ</button>
+    </div>
+    <div id="faqs"><div class="empty">正在读取…</div></div>
+  </section>
+</main>
+
+<dialog id="editor">
+  <form method="dialog" id="faqForm">
+    <div class="dialog-head"><h2 id="editorTitle">新增 FAQ</h2><button class="btn" value="cancel" type="button" id="closeEditor">关闭</button></div>
+    <div class="dialog-body">
+      <div class="grid2">
+        <div><label class="field">分类</label><input type="text" id="fCategory" value="通用"></div>
+        <div><label class="field">适用平台（可多选）</label><div class="checks" id="platformChecks"></div></div>
+      </div>
+      <label class="field">标准问题</label><input type="text" id="fQuestion" placeholder="例如：第一次到店维修需要带什么？">
+      <label class="field">相似问法（每行一条）</label><textarea id="fVariants" placeholder="到店要带什么&#10;维修需要带什么"></textarea>
+      <label class="field">标准答案</label><textarea id="fAnswer" placeholder="只写已确认的信息，不要写未核实的价格或承诺。"></textarea>
+      <label class="field">支持语言</label>
+      <div class="checks" id="languageChecks"></div>
+      <div class="checks">
+        <label><input type="checkbox" id="fAuto"> 允许自动发送（仍需人工开启）</label>
+        <label><input type="checkbox" id="fSensitive"> 含平台敏感内容</label>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" type="button" id="saveDraft">保存为待审核</button>
+      <button class="btn good" type="button" id="saveApproved">保存并审核</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const LANGUAGES = [['zh-CN','简体中文'],['zh-TW','繁体中文'],['ja','日语'],['en','英语']];
+let items = [], candidates = [], channels = [], editingId = null;
+
+function toast(text) { const t = $('toast'); t.textContent = text; t.classList.add('show'); clearTimeout(t._timer); t._timer = setTimeout(() => t.classList.remove('show'), 3200); }
+async function get(path) { const r = await fetch(path); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+async function post(path, data = {}) { const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)}); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+function esc(text) { return String(text).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+function date(iso) { if (!iso) return '未审核'; return new Date(iso).toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}); }
+
+function renderStats(stats) {
+  $('statTotal').textContent = stats.total; $('statApproved').textContent = stats.approved; $('statPending').textContent = stats.pending;
+}
+
+function renderCandidates() {
+  if (!candidates.length) { $('candidates').innerHTML = '<div class="empty">暂无候选。可以先用聊天页面产生一些客户消息与人工回复。</div>'; return; }
+  $('candidates').innerHTML = candidates.map(c => `
+    <div class="candidate">
+      <div class="q">${esc(c.question)}</div>
+      <div class="a">${esc(c.suggested_answer)}</div>
+      <div class="meta"><span>出现 ${c.occurrences} 次</span><span>来源会话：${c.sources.map(id => '#' + id).join('、')}</span><span>${date(c.created_at)}</span></div>
+      <div class="actions"><button class="btn good" data-accept="${c.id}">采用为待审核 FAQ</button><button class="btn" data-reject="${c.id}">忽略</button></div>
+    </div>`).join('');
+  document.querySelectorAll('[data-accept]').forEach(btn => btn.onclick = () => acceptCandidate(Number(btn.dataset.accept)));
+  document.querySelectorAll('[data-reject]').forEach(btn => btn.onclick = () => rejectCandidate(Number(btn.dataset.reject)));
+}
+
+function renderFaqs() {
+  if (!items.length) { $('faqs').innerHTML = '<div class="empty">知识库还是空的。可以新增一条，或从历史聊天生成候选。</div>'; return; }
+  $('faqs').innerHTML = items.map(f => `
+    <div class="faq-item">
+      <div>
+        <div class="q">${esc(f.question)} ${f.reviewed_at ? '<span class="chip ok">已审核</span>' : '<span class="chip pending">待审核</span>'}</div>
+        <div class="a">${esc(f.answer)}</div>
+        <div class="chips">${f.category ? `<span class="chip">${esc(f.category)}</span>` : ''}${f.languages.map(l => `<span class="chip">${esc(l)}</span>`).join('')}${f.auto_send ? '<span class="chip">可自动发送</span>' : ''}${f.sensitive ? '<span class="chip pending">敏感</span>' : ''}</div>
+        <div class="meta" style="font-size:12px;color:var(--muted);margin-top:8px">更新 ${date(f.updated_at)} · 审核 ${date(f.reviewed_at)}${f.variants.length ? ' · 相似问法 ' + f.variants.length + ' 条' : ''}</div>
+      </div>
+      <div class="faq-actions">
+        <button class="btn" data-edit="${f.id}">编辑</button>
+        ${f.reviewed_at ? '' : `<button class="btn good" data-approve="${f.id}">审核通过</button>`}
+        <button class="btn danger" data-delete="${f.id}">删除</button>
+      </div>
+    </div>`).join('');
+  document.querySelectorAll('[data-edit]').forEach(btn => btn.onclick = () => openEditor(Number(btn.dataset.edit)));
+  document.querySelectorAll('[data-approve]').forEach(btn => btn.onclick = () => approve(Number(btn.dataset.approve)));
+  document.querySelectorAll('[data-delete]').forEach(btn => btn.onclick = () => remove(Number(btn.dataset.delete)));
+}
+
+async function load() {
+  const q = $('search').value.trim();
+  const data = await get('/api/faq' + (q ? '?q=' + encodeURIComponent(q) : ''));
+  items = data.items; candidates = data.candidates;
+  renderStats(data.stats); renderCandidates(); renderFaqs();
+}
+
+function openEditor(id) {
+  editingId = id;
+  const faq = id ? items.find(item => item.id === id) : null;
+  $('editorTitle').textContent = id ? `编辑 FAQ #${id}` : '新增 FAQ';
+  $('fCategory').value = faq ? faq.category : '通用';
+  $('fQuestion').value = faq ? faq.question : '';
+  $('fVariants').value = faq ? faq.variants.join('\n') : '';
+  $('fAnswer').value = faq ? faq.answer : '';
+  $('fAuto').checked = faq ? faq.auto_send : false;
+  $('fSensitive').checked = faq ? faq.sensitive : false;
+  renderChecks(faq);
+  $('editor').showModal();
+}
+
+function renderChecks(faq) {
+  $('languageChecks').innerHTML = LANGUAGES.map(([code, name]) => `<label><input type="checkbox" value="${code}" ${(!faq && code === 'zh-CN') || (faq && faq.languages.includes(code)) ? 'checked' : ''}> ${name}</label>`).join('');
+  $('platformChecks').innerHTML = channels.map(c => `<label><input type="checkbox" value="${c.id}" ${faq && faq.platforms.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('') || '<span style="color:var(--muted)">未配置渠道</span>';
+}
+
+function formPayload(review) {
+  return {
+    category: $('fCategory').value.trim() || '通用',
+    question: $('fQuestion').value.trim(),
+    answer: $('fAnswer').value.trim(),
+    variants: $('fVariants').value.split('\n').map(v => v.trim()).filter(Boolean),
+    platforms: Array.from($('platformChecks').querySelectorAll('input:checked')).map(i => i.value),
+    languages: Array.from($('languageChecks').querySelectorAll('input:checked')).map(i => i.value),
+    auto_send: $('fAuto').checked,
+    sensitive: $('fSensitive').checked,
+    review,
+  };
+}
+
+async function save(review) {
+  const payload = formPayload(review);
+  if (!payload.question || !payload.answer) { toast('问题和答案不能为空。'); return; }
+  try {
+    if (editingId) await post(`/api/faq/${editingId}/update`, payload);
+    else await post('/api/faq', {...payload, reviewed: review});
+    $('editor').close();
+    await load();
+    toast(review ? '已保存并审核。' : '已保存为待审核。');
+  } catch (error) { toast('保存失败：' + error.message); }
+}
+
+async function approve(id) { try { await post(`/api/faq/${id}/approve`); await load(); toast('已审核，可用于草稿。'); } catch (error) { toast('操作失败：' + error.message); } }
+async function remove(id) { if (!window.confirm('确定删除这条 FAQ？')) return; try { await post(`/api/faq/${id}/delete`); await load(); toast('已删除。'); } catch (error) { toast('删除失败：' + error.message); } }
+async function acceptCandidate(id) { try { await post(`/api/faq/candidates/${id}/accept`); await load(); toast('已采用为待审核 FAQ，请在知识库中审核。'); } catch (error) { toast('采用失败：' + error.message); } }
+async function rejectCandidate(id) { try { await post(`/api/faq/candidates/${id}/reject`); await load(); toast('已忽略该候选。'); } catch (error) { toast('操作失败：' + error.message); } }
+
+$('buildCandidates').onclick = async () => {
+  const button = $('buildCandidates'); button.disabled = true;
+  try { const r = await post('/api/faq/candidates/build'); await load(); toast(`已扫描历史聊天，生成/更新 ${r.created} 条候选。`); }
+  catch (error) { toast('生成失败：' + error.message); }
+  finally { button.disabled = false; }
+};
+$('newFaq').onclick = () => openEditor(null);
+$('closeEditor').onclick = () => $('editor').close();
+$('saveDraft').onclick = () => save(false);
+$('saveApproved').onclick = () => save(true);
+$('search').oninput = () => { clearTimeout(window._searchTimer); window._searchTimer = setTimeout(load, 250); };
+
+(async function init() {
+  try { channels = (await get('/api/channels')).channels; } catch (error) { channels = []; }
+  await load();
+})();
+</script>
+</body>
+</html>

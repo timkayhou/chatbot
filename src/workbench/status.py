@@ -83,10 +83,43 @@ def inference_test(base_url: str, api_key: str) -> dict:
         return {"state": "failed", "detail": str(error)}
 
 
-def readiness(soak: dict, inference: dict, backend: str = "local") -> dict:
+def alerts(
+    *,
+    inference: dict,
+    soak: dict,
+    backup_age_hours: float | None,
+    db_bytes: int,
+    pending_candidates: int = 0,
+) -> list[dict]:
+    """Local-only warnings shown at the top of the run center."""
+    items: list[dict] = []
+    if inference["state"] != "ready":
+        items.append({"level": "danger", "text": "本地 AI 服务不可用，草稿会退回 FAQ 或手工填写"})
+    if soak["state"] == "failed":
+        items.append({"level": "danger", "text": "最近一次稳定性测试出现失败，请查看日志"})
+    if backup_age_hours is None:
+        items.append({"level": "warning", "text": "尚未创建数据库备份，建议运行 scripts/backup_db.py"})
+    elif backup_age_hours > 168:
+        items.append({"level": "warning", "text": f"最近一次备份在 {backup_age_hours / 24:.0f} 天前"})
+    if db_bytes > 1_000_000_000:
+        items.append({"level": "warning", "text": "数据库已超过 1 GB，建议检查数据保留策略"})
+    if pending_candidates:
+        items.append({"level": "info", "text": f"有 {pending_candidates} 条 FAQ 候选待处理"})
+    return items
+
+
+def readiness(
+    soak: dict,
+    inference: dict,
+    backend: str = "local",
+    *,
+    approved_faq: int = 0,
+    mock_channels: int = 0,
+) -> dict:
     drafting_ready = inference["state"] == "ready"
     duration_seconds = int(soak.get("elapsed_seconds") or 0)
     long_soak_passed = soak["state"] == "passed" and duration_seconds >= 7200
+    faq_state = "ready" if approved_faq >= 5 else ("attention" if approved_faq else "todo")
     items = [
         {"id": "workbench", "label": "本地人工工作台", "state": "ready", "detail": "粘贴、校验、批准和复制可用"},
         {"id": "guard", "label": "发送规则校验", "state": "ready", "detail": "文字、OCR 与二维码检查已接入"},
@@ -103,8 +136,8 @@ def readiness(soak: dict, inference: dict, backend: str = "local") -> dict:
             "state": "ready" if drafting_ready else "attention",
             "detail": "本地模型起草，人工编辑与校验" if drafting_ready else "需要本地 AI 服务在线",
         },
-        {"id": "faq", "label": "FAQ 知识库", "state": "todo", "detail": "尚未建立已审核业务答案"},
-        {"id": "channels", "label": "真实消息渠道", "state": "todo", "detail": "尚未接入账号、采集器或官方接口"},
+        {"id": "faq", "label": "FAQ 知识库", "state": faq_state, "detail": f"已审核 {approved_faq} 条，草稿可引用" if approved_faq else "尚未建立已审核业务答案"},
+        {"id": "channels", "label": "真实消息渠道", "state": "todo", "detail": f"已配置 {mock_channels} 个模拟渠道；真实只读采集未接入"},
         {"id": "operations", "label": "长期运行保障", "state": "todo", "detail": "开机启动、备份、恢复和告警待实现"},
         {
             "id": "release_soak",

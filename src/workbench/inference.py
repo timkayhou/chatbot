@@ -34,7 +34,7 @@ class GenerationUnavailable(Exception):
     """The local model is offline, timed out or returned unusable text."""
 
 
-def build_messages(inbound: str, language: str) -> list[dict[str, str]]:
+def build_messages(inbound: str, language: str, reference: str | None = None) -> list[dict[str, str]]:
     if language not in LANGUAGE_NAMES:
         raise ValueError("unsupported language")
     inbound = inbound.strip()
@@ -44,6 +44,11 @@ def build_messages(inbound: str, language: str) -> list[dict[str, str]]:
         f"客户当前语言是{LANGUAGE_NAMES[language]}。请用该语言回复，不要混用其他语言。"
         "只输出回复正文，不要解释你的思路，不超过 120 个汉字（其他语言不超过 80 词）。"
     )
+    if reference:
+        instruction += (
+            f"\n下面是一条已审核的参考答案，请按客户语言改写后使用；"
+            f"价格、数字、单位、产品型号和 URL 必须原样保留，不得添加未确认的信息：\n{reference}"
+        )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"{instruction}\n\n客户消息：\n{inbound}"},
@@ -61,11 +66,12 @@ def generate_draft(
     inbound: str,
     language: str,
     *,
+    reference: str | None = None,
     timeout: int = 90,
 ) -> dict:
     """Return a suggested reply. It is never persisted or sent from here."""
     payload = {
-        "messages": build_messages(inbound, language),
+        "messages": build_messages(inbound, language, reference),
         "max_tokens": MAX_DRAFT_TOKENS,
         "temperature": 0.2,
         "chat_template_kwargs": {"enable_thinking": False},

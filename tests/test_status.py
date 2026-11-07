@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workbench.status import parse_soak_log, readiness
+from workbench.status import alerts, parse_soak_log, readiness
 
 
 class StatusTests(unittest.TestCase):
@@ -29,6 +29,31 @@ class StatusTests(unittest.TestCase):
         )
         self.assertFalse(result["formal_ready"])
         self.assertTrue(any(item["state"] == "todo" for item in result["items"]))
+
+    def test_alerts_list_local_risks(self):
+        items = alerts(
+            inference={"state": "offline"},
+            soak={"state": "failed"},
+            backup_age_hours=None,
+            db_bytes=2_000_000_000,
+            pending_candidates=3,
+        )
+        texts = " ".join(item["text"] for item in items)
+        self.assertIn("AI 服务不可用", texts)
+        self.assertIn("稳定性测试出现失败", texts)
+        self.assertIn("尚未创建数据库备份", texts)
+        self.assertIn("1 GB", texts)
+        self.assertIn("3 条 FAQ 候选", texts)
+        self.assertTrue(all(item["level"] in {"danger", "warning", "info"} for item in items))
+
+    def test_alerts_are_empty_when_healthy(self):
+        items = alerts(
+            inference={"state": "ready"},
+            soak={"state": "passed"},
+            backup_age_hours=2,
+            db_bytes=1_000_000,
+        )
+        self.assertEqual([], items)
 
     def test_long_soak_unlocks_release_gate(self):
         short = readiness(

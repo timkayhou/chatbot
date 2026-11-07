@@ -8,6 +8,10 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Iterator
+from uuid import uuid4
+
+from .faq import match as match_faq_row, parse_row as parse_faq_row, similarity
+from .guard import compact
 
 
 def utc_now() -> str:
@@ -74,6 +78,53 @@ CREATE TABLE IF NOT EXISTS outbox (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_sending_per_account
   ON outbox(account_key) WHERE state = 'sending';
+CREATE TABLE IF NOT EXISTS channels (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  accent TEXT NOT NULL,
+  skin TEXT NOT NULL DEFAULT 'plain',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  connection TEXT NOT NULL DEFAULT 'mock',
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  avatar TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  locale TEXT NOT NULL DEFAULT 'zh-CN',
+  profile_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(channel_id, external_id)
+);
+CREATE TABLE IF NOT EXISTS faq (
+  id INTEGER PRIMARY KEY,
+  category TEXT NOT NULL DEFAULT '通用',
+  question TEXT NOT NULL,
+  variants_json TEXT NOT NULL DEFAULT '[]',
+  answer TEXT NOT NULL,
+  platforms_json TEXT NOT NULL DEFAULT '[]',
+  languages_json TEXT NOT NULL DEFAULT '["zh-CN"]',
+  auto_send INTEGER NOT NULL DEFAULT 0,
+  sensitive INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'manual',
+  reviewed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS faq_candidates (
+  id INTEGER PRIMARY KEY,
+  question TEXT NOT NULL,
+  suggested_answer TEXT NOT NULL,
+  occurrences INTEGER NOT NULL DEFAULT 1,
+  source_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','rejected')),
+  created_at TEXT NOT NULL,
+  UNIQUE(question, suggested_answer)
+);
 """
 
 
@@ -83,6 +134,24 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate(connection)
+
+    def _migrate(self, connection: sqlite3.Connection) -> None:
+        """Add columns introduced after the first local database was created."""
+        conversation_columns = {row[1] for row in connection.execute("PRAGMA table_info(conversations)")}
+        additions = {
+            "channel_id": "TEXT NOT NULL DEFAULT 'manual'",
+            "customer_id": "INTEGER",
+            "unread": "INTEGER NOT NULL DEFAULT 0",
+            "updated_at": "TEXT",
+        }
+        for name, definition in additions.items():
+            if name not in conversation_columns:
+                connection.execute(f"ALTER TABLE conversations ADD COLUMN {name} {definition}")
+        connection.execute("UPDATE conversations SET updated_at=COALESCE(updated_at, created_at) WHERE updated_at IS NULL")
+        message_columns = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
+        if "source" not in message_columns:
+            connection.execute("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'inbound'")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -259,10 +328,16 @@ class Store:
             db.commit()
             return str(row["body"])
 
-    def set_takeover(self, conversation_id: int) -> None:
+    def set_takeover(self, conversation_id: int, enabled: bool = True) -> None:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("UPDATE conversations SET takeover=1 WHERE id=?", (conversation_id,))
+            db.execute(
+                "UPDATE conversations SET takeover=?,updated_at=? WHERE id=?",
+                (1 if enabled else 0, utc_now(), conversation_id),
+            )
+            if not enabled:
+                db.commit()
+                return
             db.execute(
                 "UPDATE drafts SET state='stale',updated_at=? WHERE conversation_id=? AND state IN ('pending','approved')",
                 (utc_now(), conversation_id),
@@ -282,4 +357,391 @@ class Store:
                 "JOIN messages m ON m.id=d.based_on_message_id WHERE d.id=?",
                 (draft_id,),
             ).fetchone()
+
+    # --- channels, customers and simulated conversations -----------------
+
+    def sync_channels(self, channels: list[dict]) -> None:
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for channel in channels:
+                db.execute(
+                    "INSERT INTO channels(id,name,accent,skin,sort_order) VALUES(?,?,?,?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET name=excluded.name,accent=excluded.accent,"
+                    "skin=excluded.skin,sort_order=excluded.sort_order",
+                    (
+                        channel["id"],
+                        channel["name"],
+                        channel["accent"],
+                        channel.get("skin", "plain"),
+                        int(channel.get("sort_order", 0)),
+                    ),
+                )
+            db.commit()
+
+    def list_channels(self) -> list[dict]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT ch.id,ch.name,ch.accent,ch.skin,ch.sort_order,ch.connection,"
+                "(SELECT COUNT(*) FROM conversations c WHERE c.channel_id=ch.id) AS conversations,"
+                "(SELECT COALESCE(SUM(c.unread),0) FROM conversations c WHERE c.channel_id=ch.id) AS unread "
+                "FROM channels ch WHERE ch.enabled=1 ORDER BY ch.sort_order,ch.id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_customer(
+        self,
+        channel_id: str,
+        external_id: str,
+        display_name: str,
+        *,
+        avatar: str = "",
+        note: str = "",
+        tags: tuple[str, ...] | list[str] = (),
+        locale: str = "zh-CN",
+        profile: dict | None = None,
+    ) -> int:
+        now = utc_now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "INSERT INTO customers(channel_id,external_id,display_name,avatar,note,tags_json,locale,profile_json,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(channel_id,external_id) DO UPDATE SET "
+                "display_name=excluded.display_name,avatar=excluded.avatar,note=excluded.note,"
+                "tags_json=excluded.tags_json,locale=excluded.locale,profile_json=excluded.profile_json",
+                (
+                    channel_id,
+                    external_id,
+                    display_name,
+                    avatar,
+                    note,
+                    json.dumps(list(tags), ensure_ascii=False),
+                    locale,
+                    json.dumps(profile or {}, ensure_ascii=False),
+                    now,
+                ),
+            )
+            row = db.execute(
+                "SELECT id FROM customers WHERE channel_id=? AND external_id=?",
+                (channel_id, external_id),
+            ).fetchone()
+            db.commit()
+            return int(row[0])
+
+    def create_chat_conversation(self, channel_id: str, customer_id: int, label: str, language: str) -> int:
+        now = utc_now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "INSERT INTO conversations(label,language,channel_id,customer_id,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?) RETURNING id",
+                (label, language, channel_id, customer_id, now, now),
+            ).fetchone()
+            db.commit()
+            return int(row[0])
+
+    def add_message(
+        self,
+        conversation_id: int,
+        direction: str,
+        body: str,
+        source: str = "mock",
+        *,
+        created_at: str | None = None,
+    ) -> dict:
+        if direction not in {"in", "out"}:
+            raise ValueError("invalid direction")
+        now = created_at or utc_now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "INSERT INTO messages(conversation_id,direction,body,dedupe_key,created_at,source) "
+                "VALUES(?,?,?,?,?,?) RETURNING id",
+                (conversation_id, direction, body, uuid4().hex, now, source),
+            ).fetchone()
+            db.execute(
+                "UPDATE conversations SET updated_at=?,unread=CASE WHEN ?='in' THEN unread+1 ELSE unread END WHERE id=?",
+                (now, direction, conversation_id),
+            )
+            db.commit()
+        return {
+            "id": int(row[0]),
+            "conversation_id": conversation_id,
+            "direction": direction,
+            "body": body,
+            "source": source,
+            "created_at": now,
+        }
+
+    def list_conversations(self, channel_id: str | None = None) -> list[dict]:
+        query = (
+            "SELECT c.id,c.label,c.language,c.takeover,c.unread,c.channel_id,c.updated_at,"
+            "cu.id AS customer_id,cu.external_id,cu.display_name,cu.avatar,cu.locale,cu.tags_json,"
+            "(SELECT m.body FROM messages m WHERE m.conversation_id=c.id ORDER BY m.id DESC LIMIT 1) AS preview,"
+            "(SELECT m.created_at FROM messages m WHERE m.conversation_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at "
+            "FROM conversations c LEFT JOIN customers cu ON cu.id=c.customer_id "
+        )
+        params: tuple = ()
+        if channel_id:
+            query += "WHERE c.channel_id=? "
+            params = (channel_id,)
+        query += "ORDER BY COALESCE(last_at,c.updated_at) DESC, c.id DESC"
+        with self.connect() as db:
+            rows = db.execute(query, params).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["tags"] = json.loads(item.pop("tags_json") or "[]")
+            result.append(item)
+        return result
+
+    def conversation_detail(self, conversation_id: int) -> dict | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT c.id,c.label,c.language,c.takeover,c.unread,c.channel_id,c.created_at,c.updated_at,"
+                "ch.name AS channel_name,ch.accent AS channel_accent,ch.skin AS channel_skin,"
+                "cu.id AS customer_id,cu.external_id,cu.display_name,cu.avatar,cu.note AS customer_note,"
+                "cu.tags_json,cu.locale,cu.profile_json "
+                "FROM conversations c LEFT JOIN channels ch ON ch.id=c.channel_id "
+                "LEFT JOIN customers cu ON cu.id=c.customer_id WHERE c.id=?",
+                (conversation_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            messages = [
+                dict(message)
+                for message in db.execute(
+                    "SELECT id,direction,body,source,created_at FROM messages WHERE conversation_id=? ORDER BY id",
+                    (conversation_id,),
+                ).fetchall()
+            ]
+        conversation = dict(row)
+        conversation["tags"] = json.loads(conversation.pop("tags_json") or "[]")
+        conversation["profile"] = json.loads(conversation.pop("profile_json") or "{}")
+        return {"conversation": conversation, "messages": messages}
+
+    def mark_read(self, conversation_id: int) -> None:
+        with self.connect() as db:
+            db.execute("UPDATE conversations SET unread=0 WHERE id=?", (conversation_id,))
+
+    def set_unread(self, conversation_id: int, count: int) -> None:
+        with self.connect() as db:
+            db.execute(
+                "UPDATE conversations SET unread=? WHERE id=?",
+                (max(0, int(count)), conversation_id),
+            )
+
+    # --- FAQ knowledge base ----------------------------------------------
+
+    def create_faq(
+        self,
+        *,
+        question: str,
+        answer: str,
+        category: str = "通用",
+        variants: tuple[str, ...] | list[str] = (),
+        platforms: tuple[str, ...] | list[str] = (),
+        languages: tuple[str, ...] | list[str] = ("zh-CN",),
+        auto_send: bool = False,
+        sensitive: bool = False,
+        source: str = "manual",
+        reviewed: bool = False,
+    ) -> int:
+        now = utc_now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "INSERT INTO faq(category,question,variants_json,answer,platforms_json,languages_json,"
+                "auto_send,sensitive,source,reviewed_at,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                (
+                    category,
+                    question,
+                    json.dumps(list(variants), ensure_ascii=False),
+                    answer,
+                    json.dumps(list(platforms), ensure_ascii=False),
+                    json.dumps(list(languages), ensure_ascii=False),
+                    1 if auto_send else 0,
+                    1 if sensitive else 0,
+                    source,
+                    now if reviewed else None,
+                    now,
+                    now,
+                ),
+            ).fetchone()
+            db.commit()
+            return int(row[0])
+
+    def update_faq(
+        self,
+        faq_id: int,
+        *,
+        category: str | None = None,
+        question: str | None = None,
+        answer: str | None = None,
+        variants: list[str] | None = None,
+        platforms: list[str] | None = None,
+        languages: list[str] | None = None,
+        auto_send: bool | None = None,
+        sensitive: bool | None = None,
+        review: bool = False,
+    ) -> bool:
+        assignments: list[str] = []
+        params: list[object] = []
+        content_changed = False
+        for column, value in (
+            ("category", category),
+            ("question", question),
+            ("answer", answer),
+        ):
+            if value is not None:
+                assignments.append(f"{column}=?")
+                params.append(value)
+                content_changed = content_changed or column != "category"
+        for column, values in (
+            ("variants_json", variants),
+            ("platforms_json", platforms),
+            ("languages_json", languages),
+        ):
+            if values is not None:
+                assignments.append(f"{column}=?")
+                params.append(json.dumps(list(values), ensure_ascii=False))
+                content_changed = True
+        for column, flag in (("auto_send", auto_send), ("sensitive", sensitive)):
+            if flag is not None:
+                assignments.append(f"{column}=?")
+                params.append(1 if flag else 0)
+        if content_changed:
+            assignments.append("reviewed_at=?")
+            params.append(utc_now() if review else None)
+        elif review:
+            assignments.append("reviewed_at=?")
+            params.append(utc_now())
+        if not assignments:
+            return False
+        assignments.append("updated_at=?")
+        params.append(utc_now())
+        params.append(faq_id)
+        with self.connect() as db:
+            changed = db.execute(f"UPDATE faq SET {','.join(assignments)} WHERE id=?", params).rowcount
+        return bool(changed)
+
+    def approve_faq(self, faq_id: int) -> bool:
+        with self.connect() as db:
+            changed = db.execute(
+                "UPDATE faq SET reviewed_at=?,updated_at=? WHERE id=?",
+                (utc_now(), utc_now(), faq_id),
+            ).rowcount
+        return bool(changed)
+
+    def delete_faq(self, faq_id: int) -> bool:
+        with self.connect() as db:
+            return bool(db.execute("DELETE FROM faq WHERE id=?", (faq_id,)).rowcount)
+
+    def list_faq(self, query: str | None = None) -> list[dict]:
+        sql = "SELECT * FROM faq"
+        params: tuple = ()
+        if query and query.strip():
+            like = f"%{query.strip()}%"
+            sql += " WHERE question LIKE ? OR answer LIKE ? OR variants_json LIKE ?"
+            params = (like, like, like)
+        sql += " ORDER BY id DESC"
+        with self.connect() as db:
+            rows = db.execute(sql, params).fetchall()
+        return [parse_faq_row(row) for row in rows]
+
+    def get_faq(self, faq_id: int) -> dict | None:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM faq WHERE id=?", (faq_id,)).fetchone()
+        return parse_faq_row(row) if row else None
+
+    def match_faq(self, inbound: str, language: str | None = None, threshold: float = 0.3) -> dict | None:
+        hit = match_faq_row(inbound, self.list_faq(), threshold)
+        if hit is None:
+            return None
+        faq, score = hit
+        supported = language in faq["languages"] if language else True
+        return {**faq, "score": score, "language_supported": supported}
+
+    def build_faq_candidates(self, minimum: int = 2, limit: int = 100) -> int:
+        """Group repeated inbound messages and the human reply that followed them."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT conversation_id,direction,body FROM messages ORDER BY conversation_id,id"
+            ).fetchall()
+        groups: dict[str, dict] = {}
+        pending: sqlite3.Row | None = None
+        for row in rows:
+            if row["direction"] == "in":
+                pending = row
+                continue
+            if pending is None:
+                continue
+            question = pending["body"].strip()[:200]
+            answer = row["body"].strip()
+            if question and answer:
+                entry = groups.setdefault(question, {"answers": {}, "sources": set(), "count": 0})
+                entry["answers"][answer] = entry["answers"].get(answer, 0) + 1
+                entry["sources"].add(pending["conversation_id"])
+                entry["count"] += 1
+            pending = None
+        existing = self.list_faq()
+        created = 0
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for question, entry in sorted(groups.items(), key=lambda item: item[1]["count"], reverse=True)[:limit]:
+                if entry["count"] < minimum:
+                    continue
+                if any(similarity(question, faq["question"], faq["variants"]) >= 0.7 for faq in existing):
+                    continue
+                answer = max(entry["answers"], key=entry["answers"].get)
+                db.execute(
+                    "INSERT INTO faq_candidates(question,suggested_answer,occurrences,source_json,created_at) "
+                    "VALUES(?,?,?,?,?) ON CONFLICT(question,suggested_answer) DO UPDATE SET "
+                    "occurrences=excluded.occurrences,source_json=excluded.source_json,created_at=excluded.created_at "
+                    "WHERE faq_candidates.status='pending'",
+                    (
+                        question,
+                        answer,
+                        entry["count"],
+                        json.dumps(sorted(entry["sources"]), ensure_ascii=False),
+                        utc_now(),
+                    ),
+                )
+                created += 1
+            db.commit()
+        return created
+
+    def list_faq_candidates(self, status: str = "pending") -> list[dict]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT * FROM faq_candidates WHERE status=? ORDER BY occurrences DESC,id DESC",
+                (status,),
+            ).fetchall()
+        return [{**dict(row), "sources": json.loads(row["source_json"])} for row in rows]
+
+    def accept_faq_candidate(self, candidate_id: int) -> int | None:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT * FROM faq_candidates WHERE id=? AND status='pending'",
+                (candidate_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        faq_id = self.create_faq(
+            category="历史归纳",
+            question=row["question"],
+            answer=row["suggested_answer"],
+            source="history",
+        )
+        with self.connect() as db:
+            db.execute("UPDATE faq_candidates SET status='accepted' WHERE id=?", (candidate_id,))
+        return faq_id
+
+    def reject_faq_candidate(self, candidate_id: int) -> bool:
+        with self.connect() as db:
+            changed = db.execute(
+                "UPDATE faq_candidates SET status='rejected' WHERE id=? AND status='pending'",
+                (candidate_id,),
+            ).rowcount
+        return bool(changed)
 

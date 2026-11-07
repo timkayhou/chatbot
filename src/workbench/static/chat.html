@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>模拟消息中心</title>
+<style>
+  :root{font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#172033;background:#eef2f8;--line:#e4e8f0;--muted:#68758b}
+  *{box-sizing:border-box}body{margin:0;min-height:100vh}
+  header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;background:#fff;border-bottom:1px solid var(--line)}
+  header.top h1{font-size:20px;margin:0}header.top .links{display:flex;gap:8px;align-items:center;font-size:14px}
+  a.link{color:#2f5fe0;text-decoration:none;padding:6px 10px;border-radius:8px}a.link:hover{background:#f0f3fa}
+  .badge{background:#fff3cd;color:#6b4d00;padding:5px 10px;border-radius:99px;font-weight:650;font-size:13px;white-space:nowrap}
+  .channels{display:flex;gap:8px;padding:12px 24px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
+  .channel{border:1px solid var(--line);background:#f7f9fc;border-radius:999px;padding:8px 14px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;gap:8px;align-items:center}
+  .channel .dot{width:9px;height:9px;border-radius:50%;background:var(--accent,#3B6EF6)}
+  .channel.active{background:var(--accent,#3B6EF6);border-color:var(--accent,#3B6EF6);color:#fff}.channel.active .dot{background:#fff}
+  .workspace{display:grid;grid-template-columns:320px minmax(420px,1fr) 320px;gap:18px;padding:18px 24px 40px;align-items:start;max-width:1500px;margin:0 auto}
+  .pane{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px #1d2b4b0f;overflow:hidden}
+  .list-pane{height:720px;display:flex;flex-direction:column}
+  .list-head{padding:14px}.list-head input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit}
+  .convs{flex:1;overflow:auto}.conv{display:flex;gap:11px;padding:12px 14px;cursor:pointer;border-top:1px solid #f1f4f9}
+  .conv:hover{background:#f8fafd}.conv.active{background:#eef4ff}
+  .conv .ava{width:42px;height:42px;flex:0 0 42px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:16px}
+  .conv .meta{flex:1;min-width:0}.conv .row{display:flex;justify-content:space-between;gap:8px}
+  .conv .name{font-weight:650;font-size:14px}.conv .time{font-size:11px;color:var(--muted);white-space:nowrap}
+  .conv .preview{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px}
+  .unread{background:#e0364a;color:#fff;border-radius:99px;font-size:11px;padding:1px 6px;margin-left:6px}
+  .chat-pane{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .phone{width:100%;max-width:430px;height:720px;background:#ededed;border:10px solid #14161c;border-radius:42px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px #10131a33}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:9px 22px 4px;font-size:12px;font-weight:600;background:var(--header,#07C160);color:var(--header-text,#fff)}
+  .chat-header{display:flex;align-items:center;gap:10px;padding:8px 12px 12px;background:var(--header,#07C160);color:var(--header-text,#fff)}
+  .chat-header .back{font-size:22px;line-height:1;background:none;border:0;color:inherit;cursor:pointer;padding:0 4px}
+  .chat-header .ava{width:34px;height:34px;border-radius:10px;background:#ffffff2e;display:grid;place-items:center;font-weight:700;font-size:14px}
+  .chat-header .who{flex:1;min-width:0}.chat-header .who b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chat-header .who small{opacity:.85;font-size:11px}
+  .messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:76%;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+  .msg.in{align-self:flex-start;background:#fff;border-top-left-radius:5px;box-shadow:0 1px 2px #0000000f}
+  .msg.out{align-self:flex-end;background:var(--bubble,#07C160);color:#fff;border-top-right-radius:5px}
+  .msg .tag{display:inline-block;font-size:10px;opacity:.75;margin-left:6px}
+  .msg .tm{display:block;font-size:10px;opacity:.55;margin-top:4px}
+  .empty{color:#8a94a6;text-align:center;margin:auto;font-size:13px;padding:20px}
+  .composer{display:flex;gap:8px;align-items:center;padding:9px 12px;background:#f7f7f9;border-top:1px solid #e2e2e6}
+  .composer input{flex:1;border:1px solid #dcdde3;background:#fff;border-radius:18px;padding:9px 13px;font:inherit;font-size:14px}
+  .composer button{border:0;border-radius:18px;padding:9px 14px;font-weight:650;cursor:pointer}
+  .composer .send{background:var(--accent,#07C160);color:#fff}
+  .composer .send:disabled{opacity:.5;cursor:not-allowed}
+  .chat-tools{display:flex;gap:10px;align-items:center;width:100%;max-width:430px;font-size:12px;color:var(--muted)}
+  .chat-tools button{border:0;background:#2f5fe0;color:#fff;border-radius:10px;padding:9px 13px;font-weight:650;cursor:pointer}
+  .info-pane{padding:18px}
+  .info-pane h2{font-size:17px;margin:0 0 14px}
+  .who-card{display:flex;gap:12px;align-items:center;margin-bottom:16px}
+  .who-card .ava{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;color:#fff;font-size:22px;font-weight:700}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f0f3f8;font-size:13px}
+  .kv span:first-child{color:var(--muted)}.kv span:last-child{text-align:right;word-break:break-all}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+  .tag{background:#eef3ff;color:#2f5fe0;border-radius:999px;padding:3px 9px;font-size:12px}
+  .note{background:#fff8e9;border-left:3px solid #e5a22f;padding:9px 11px;font-size:12px;color:#604614;border-radius:0 8px 8px 0;margin:10px 0}
+  .info-actions{display:grid;gap:8px;margin-top:16px}
+  .info-actions button{border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px;font:inherit;font-size:13px;cursor:pointer;font-weight:600}
+  .info-actions button.primary{background:#2f5fe0;border-color:#2f5fe0;color:#fff}
+  .info-actions button.danger{color:#a02a1e;border-color:#f1c4bd;background:#fff6f4}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#182031;color:#fff;padding:11px 16px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:80vw}
+  .toast.show{opacity:1}
+  .foot-note{padding:0 24px 22px;color:#7c879b;font-size:12px;text-align:center}
+  .phone[data-skin="xhs"]{--header:#ffffff;--header-text:#14161c;--bubble:#ff2442}
+  .phone[data-skin="xhs"] .chat-header{border-bottom:1px solid #eee}
+  .phone[data-skin="xhs"] .chat-header .ava{background:#f1f2f6;color:#14161c}
+  .phone[data-skin="xhs"] .statusbar{border-bottom:1px solid #f3f3f6}
+  .phone[data-skin="douyin"]{--header:#161823;--header-text:#fff;--bubble:#fe2c55}
+  @media (max-width:1200px){.workspace{grid-template-columns:280px 1fr}.info-pane{display:none}}
+  @media (max-width:820px){.workspace{grid-template-columns:1fr;padding:12px}.list-pane{height:280px}.phone{height:620px}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>模拟消息中心</h1>
+  <div class="links"><span class="badge">模拟环境 · 不连接真实账号</span><a class="link" href="/">运行中心</a><a class="link" href="/faq">FAQ 知识库</a></div>
+</header>
+<nav class="channels" id="channels"></nav>
+<main class="workspace">
+  <aside class="pane list-pane">
+    <div class="list-head"><input id="search" placeholder="搜索会话或消息…"></div>
+    <div class="convs" id="convs"></div>
+  </aside>
+  <section class="chat-pane">
+    <div class="phone" id="phone" data-skin="plain">
+      <div class="statusbar"><span id="clock">9:41</span><span>●●● Wi-Fi 100%</span></div>
+      <div class="chat-header">
+        <button class="back" title="返回">‹</button>
+        <div class="ava" id="chatAva">?</div>
+        <div class="who"><b id="chatName">未选择会话</b><small id="chatSub">从左侧选择一个会话</small></div>
+        <span>⋯</span>
+      </div>
+      <div class="messages" id="messages"><div class="empty">选择左侧会话开始查看</div></div>
+      <div class="composer">
+        <input id="input" placeholder="输入回复内容…" disabled>
+        <button class="send" id="send" disabled>发送</button>
+      </div>
+    </div>
+    <div class="chat-tools"><button id="suggest" disabled>AI 生成草稿</button><span id="draftInfo">草稿只在本页使用，不会自动发送。</span></div>
+  </section>
+  <aside class="pane info-pane">
+    <h2>客户信息</h2>
+    <div id="info"><div class="empty" style="margin:0">尚未选择会话</div></div>
+  </aside>
+</main>
+<div class="foot-note">所有消息只写入本机 SQLite；发送动作仅记录为模拟，不会发送到任何平台。</div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+let channels = [], active = null, conversations = [], current = null;
+const stateNames = {mock: '模拟'};
+function toast(text) { const t = $('toast'); t.textContent = text; t.classList.add('show'); clearTimeout(t._timer); t._timer = setTimeout(() => t.classList.remove('show'), 3200); }
+async function get(path) { const r = await fetch(path); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+async function post(path, data = {}) { const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)}); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+function time(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'}); }
+function ago(iso) { if (!iso) return ''; const diff = (Date.now() - new Date(iso).getTime()) / 60000; if (diff < 1) return '刚刚'; if (diff < 60) return Math.floor(diff) + ' 分钟前'; if (diff < 1440) return Math.floor(diff / 60) + ' 小时前'; return Math.floor(diff / 1440) + ' 天前'; }
+function channel() { return channels.find(c => c.id === active); }
+
+function renderChannels() {
+  $('channels').innerHTML = channels.map(c => `<button class="channel ${c.id === active ? 'active' : ''}" style="--accent:${c.accent}" data-id="${c.id}"><span class="dot"></span>${c.name}${c.unread ? ` <span class="unread">${c.unread}</span>` : ''}</button>`).join('');
+  $('channels').querySelectorAll('.channel').forEach(btn => btn.onclick = () => switchChannel(btn.dataset.id));
+}
+
+async function switchChannel(id) { active = id; current = null; await loadList(); renderChannels(); }
+
+function renderList() {
+  const q = $('search').value.trim().toLowerCase();
+  const items = conversations.filter(c => !q || (c.display_name || '').toLowerCase().includes(q) || (c.preview || '').toLowerCase().includes(q));
+  if (!items.length) { $('convs').innerHTML = '<div class="empty">这个渠道还没有会话</div>'; return; }
+  $('convs').innerHTML = items.map(c => `
+    <div class="conv ${current && current.conversation.id === c.id ? 'active' : ''}" data-id="${c.id}">
+      <div class="ava" style="background:${channel() ? channel().accent : '#3B6EF6'}">${(c.display_name || '?').slice(0, 1)}</div>
+      <div class="meta">
+        <div class="row"><span class="name">${c.display_name || c.label}${c.takeover ? ' · 人工' : ''}</span><span class="time">${ago(c.last_at)}</span></div>
+        <div class="preview">${c.preview || '（暂无消息）'} ${c.unread ? `<span class="unread">${c.unread}</span>` : ''}</div>
+      </div>
+    </div>`).join('');
+  $('convs').querySelectorAll('.conv').forEach(el => el.onclick = () => open(Number(el.dataset.id)));
+}
+
+async function loadList() {
+  const data = await get('/api/conversations?channel=' + encodeURIComponent(active || ''));
+  conversations = data.conversations;
+  if (current && !conversations.some(c => c.id === current.conversation.id)) current = null;
+  if (!current && conversations.length) { await open(conversations[0].id); return; }
+  renderList();
+  if (!conversations.length) renderChat();
+}
+
+async function open(id) {
+  const data = await get('/api/conversations/' + id);
+  current = data;
+  await post('/api/conversations/' + id + '/read');
+  const conv = conversations.find(c => c.id === id); if (conv) conv.unread = 0;
+  renderList(); renderChat(); renderInfo();
+}
+
+function renderChat() {
+  const phone = $('phone');
+  if (!current) {
+    phone.dataset.skin = 'plain';
+    $('chatName').textContent = '未选择会话'; $('chatSub').textContent = '从左侧选择一个会话';
+    $('chatAva').textContent = '?'; $('messages').innerHTML = '<div class="empty">选择左侧会话开始查看</div>';
+    $('input').disabled = true; $('send').disabled = true; $('suggest').disabled = true;
+    return;
+  }
+  const c = current.conversation;
+  const ch = channel() || {};
+  phone.dataset.skin = ch.skin || 'plain';
+  phone.style.setProperty('--accent', ch.accent || '#07C160');
+  phone.style.setProperty('--header', ch.skin === 'xhs' ? '#ffffff' : (ch.accent || '#07C160'));
+  phone.style.setProperty('--header-text', ch.skin === 'xhs' ? '#14161c' : '#ffffff');
+  phone.style.setProperty('--bubble', ch.accent || '#07C160');
+  $('chatName').textContent = c.display_name || c.label;
+  $('chatSub').textContent = `${ch.name || c.channel_id} · ${c.locale || c.language}${c.takeover ? ' · 人工接管' : ''}`;
+  $('chatAva').textContent = (c.display_name || '?').slice(0, 1);
+  $('messages').innerHTML = current.messages.length ? current.messages.map(m => `
+    <div class="msg ${m.direction === 'in' ? 'in' : 'out'}">${escapeHtml(m.body)}<span class="tm">${time(m.created_at)}${m.direction === 'out' && m.source === 'simulated' ? ' · 模拟' : ''}</span></div>`).join('') : '<div class="empty">还没有消息，可以用下方“模拟来信”</div>';
+  $('messages').scrollTop = $('messages').scrollHeight;
+  $('input').disabled = false; $('send').disabled = false; $('suggest').disabled = false;
+}
+function escapeHtml(text) { return String(text).replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch])); }
+
+function renderInfo() {
+  if (!current) { $('info').innerHTML = '<div class="empty" style="margin:0">尚未选择会话</div>'; return; }
+  const c = current.conversation, ch = channel() || {};
+  $('info').innerHTML = `
+    <div class="who-card"><div class="ava" style="background:${ch.accent || '#3B6EF6'}">${(c.display_name || '?').slice(0, 1)}</div>
+      <div><b>${escapeHtml(c.display_name || c.label)}</b><div style="font-size:12px;color:var(--muted)">${ch.name || c.channel_id}</div></div></div>
+    <div class="kv"><span>渠道</span><span>${ch.name || c.channel_id}（模拟）</span></div>
+    <div class="kv"><span>语言</span><span>${c.locale || c.language}</span></div>
+    <div class="kv"><span>外部标识</span><span>${escapeHtml(c.external_id || '—')}</span></div>
+    <div class="kv"><span>会话编号</span><span>#${c.id}</span></div>
+    <div class="kv"><span>状态</span><span>${c.takeover ? '人工接管' : '自动草稿可用'}</span></div>
+    <div class="tags">${(c.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('') || '<span style="color:var(--muted);font-size:12px">无标签</span>'}</div>
+    ${c.customer_note ? `<div class="note">${escapeHtml(c.customer_note)}</div>` : ''}
+    <div class="info-actions">
+      <button class="primary" id="infoSuggest">AI 生成草稿</button>
+      <button id="infoInbound">模拟收到新消息</button>
+      <button id="infoTakeover" class="${c.takeover ? 'danger' : ''}">${c.takeover ? '取消人工接管' : '人工接管此会话'}</button>
+    </div>`;
+  $('infoSuggest').onclick = suggest;
+  $('infoInbound').onclick = simulateInbound;
+  $('infoTakeover').onclick = toggleTakeover;
+}
+
+async function send() {
+  if (!current) return;
+  const body = $('input').value.trim();
+  if (!body) return;
+  try {
+    const r = await post(`/api/conversations/${current.conversation.id}/messages`, {body});
+    current.messages.push(r.message);
+    $('input').value = '';
+    renderChat();
+    toast('已写入模拟会话，未发送到真实平台。');
+    await loadList();
+  } catch (error) { toast('发送失败：' + error.message); }
+}
+
+async function suggest() {
+  if (!current) return;
+  const button = $('suggest');
+  button.disabled = true;
+  $('draftInfo').textContent = '正在生成草稿…';
+  try {
+    const r = await post(`/api/conversations/${current.conversation.id}/suggest`);
+    $('input').value = r.draft;
+    $('input').focus();
+    const source = r.source === 'faq' ? `引用 FAQ #${r.faq.id}` : `本地模型 ${r.seconds} 秒`;
+    const warn = r.guard && r.guard.verdict !== 'pass' ? ` · 预检拦截：${r.guard.hits.map(h => h.rule).join(', ')}` : '';
+    $('draftInfo').textContent = `${source}${warn} · 请人工修改后再发送（模拟）`;
+  } catch (error) { $('draftInfo').textContent = '生成失败：' + error.message; }
+  finally { button.disabled = false; }
+}
+
+async function simulateInbound() {
+  if (!current) return;
+  const text = window.prompt('模拟客户消息内容', '请问今天可以到店检测吗？');
+  if (!text) return;
+  try {
+    await post(`/api/conversations/${current.conversation.id}/inbound`, {body: text});
+    await open(current.conversation.id);
+    await loadList();
+    toast('已模拟收到客户消息。');
+  } catch (error) { toast('模拟失败：' + error.message); }
+}
+
+async function toggleTakeover() {
+  if (!current) return;
+  const enabled = !current.conversation.takeover;
+  try {
+    await post(`/api/conversations/${current.conversation.id}/takeover`, {enabled});
+    current.conversation.takeover = enabled ? 1 : 0;
+    renderInfo(); renderChat();
+    toast(enabled ? '已标记人工接管，自动草稿暂停。' : '已取消人工接管。');
+    await loadList();
+  } catch (error) { toast('操作失败：' + error.message); }
+}
+
+$('send').onclick = send;
+$('input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } });
+$('suggest').onclick = suggest;
+$('search').oninput = renderList;
+$('clock').textContent = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+
+(async function init() {
+  try {
+    const data = await get('/api/channels');
+    channels = data.channels;
+    const wanted = new URLSearchParams(location.search).get('channel');
+    active = channels.some(c => c.id === wanted) ? wanted : (channels.length ? channels[0].id : null);
+    renderChannels();
+    await loadList();
+  } catch (error) { toast('加载失败：' + error.message); }
+})();
+</script>
+</body>
+</html>

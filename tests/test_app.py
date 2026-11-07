@@ -20,11 +20,16 @@ except ImportError:
     MEDIA_TESTS = False
 
 
+TEST_CHANNELS = [
+    {"id": "test-channel", "name": "测试渠道", "accent": "#123456", "skin": "plain", "sort_order": 1},
+]
+
+
 class AppTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.database = Path(self.temp.name) / "app.sqlite"
-        self.server = create_server(self.database, 0)
+        self.server = create_server(self.database, 0, channels=TEST_CHANNELS)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = f"http://127.0.0.1:{self.server.server_port}"
@@ -55,6 +60,103 @@ class AppTests(unittest.TestCase):
         )
         with urlopen(request) as response:
             return json.load(response)
+
+    def get(self, path):
+        with urlopen(self.base + path) as response:
+            return json.load(response)
+
+    def store(self):
+        return self.server.RequestHandlerClass.store
+
+    def make_conversation(self, inbound="预约需要提前多久？"):
+        store = self.store()
+        customer = store.upsert_customer("test-channel", "u-1", "测试客户", tags=("新客户",), locale="zh-CN")
+        conversation = store.create_chat_conversation("test-channel", customer, "测试客户", "zh-CN")
+        store.add_message(conversation, "in", inbound, "mock")
+        return conversation
+
+    def test_status_includes_alerts(self):
+        data = self.get("/api/status")
+        self.assertIn("alerts", data)
+        self.assertIn("readiness", data)
+
+    def test_chat_and_faq_pages_render(self):
+        chat = urlopen(self.base + "/chat").read().decode()
+        self.assertIn("模拟环境", chat)
+        self.assertIn("AI 生成草稿", chat)
+        faq = urlopen(self.base + "/faq").read().decode()
+        self.assertIn("FAQ 知识库", faq)
+        self.assertIn("从历史聊天生成候选", faq)
+
+    def test_conversation_flow_is_simulated(self):
+        conversation = self.make_conversation()
+        channels = self.get("/api/channels")
+        self.assertEqual("test-channel", channels["channels"][0]["id"])
+        listing = self.get("/api/conversations?channel=test-channel")
+        self.assertEqual(1, len(listing["conversations"]))
+        self.assertEqual(1, listing["conversations"][0]["unread"])
+
+        detail = self.get(f"/api/conversations/{conversation}")
+        self.assertEqual("测试客户", detail["conversation"]["display_name"])
+        self.assertEqual("in", detail["messages"][0]["direction"])
+
+        reply = self.post(f"/api/conversations/{conversation}/messages", {"body": "您好，请稍等。"})
+        self.assertFalse(reply["sent"])
+        self.assertTrue(reply["simulated"])
+        self.assertEqual("simulated", reply["message"]["source"])
+
+        inbound = self.post(f"/api/conversations/{conversation}/inbound", {"body": "那明天呢？"})
+        self.assertTrue(inbound["simulated"])
+        self.assertEqual("mock", inbound["message"]["source"])
+
+        self.post(f"/api/conversations/{conversation}/read", {})
+        self.assertEqual(0, self.get("/api/conversations?channel=test-channel")["conversations"][0]["unread"])
+
+        self.post(f"/api/conversations/{conversation}/takeover", {"enabled": True})
+        detail = self.get(f"/api/conversations/{conversation}")
+        self.assertEqual(1, detail["conversation"]["takeover"])
+
+    def test_conversation_suggest_prefers_approved_faq(self):
+        conversation = self.make_conversation("预约需要提前多久？")
+        faq_id = self.store().create_faq(
+            question="预约需要提前多久？",
+            answer="一般提前一天预约即可。",
+            reviewed=True,
+        )
+        with patch("workbench.app.generate_draft", side_effect=AssertionError("model must not run")):
+            result = self.post(f"/api/conversations/{conversation}/suggest", {})
+        self.assertEqual("faq", result["source"])
+        self.assertEqual(faq_id, result["faq"]["id"])
+        self.assertEqual("一般提前一天预约即可。", result["draft"])
+        self.assertEqual("pass", result["guard"]["verdict"])
+
+    def test_conversation_suggest_falls_back_to_model(self):
+        conversation = self.make_conversation("笔记本很卡怎么办？")
+        suggestion = {"draft": "建议先检查启动项和磁盘占用。", "seconds": 0.5, "tokens": 18}
+        with patch("workbench.app.generate_draft", return_value=suggestion):
+            result = self.post(f"/api/conversations/{conversation}/suggest", {})
+        self.assertEqual("ai", result["source"])
+        self.assertEqual("建议先检查启动项和磁盘占用。", result["draft"])
+
+    def test_faq_crud_and_candidates(self):
+        created = self.post("/api/faq", {"question": "到店要带什么？", "answer": "带设备和电源。", "languages": ["zh-CN"]})
+        faq_id = created["id"]
+        listing = self.get("/api/faq")
+        self.assertEqual(1, listing["stats"]["total"])
+        self.assertEqual(0, listing["stats"]["approved"])
+
+        self.post(f"/api/faq/{faq_id}/approve", {})
+        self.assertEqual(1, self.get("/api/faq")["stats"]["approved"])
+
+        updated = self.post(
+            f"/api/faq/{faq_id}/update",
+            {"answer": "带设备、电源和保修卡。", "review": True},
+        )
+        self.assertTrue(updated["updated"])
+
+        self.post(f"/api/faq/candidates/build", {})
+        self.post(f"/api/faq/{faq_id}/delete", {})
+        self.assertEqual(0, self.get("/api/faq")["stats"]["total"])
 
     def post_error(self, path, payload):
         request = Request(
