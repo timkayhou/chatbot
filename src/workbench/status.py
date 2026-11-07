@@ -85,11 +85,18 @@ def inference_test(base_url: str, api_key: str) -> dict:
 
 def readiness(soak: dict, inference: dict, backend: str = "local") -> dict:
     drafting_ready = inference["state"] == "ready"
+    duration_seconds = int(soak.get("elapsed_seconds") or 0)
+    long_soak_passed = soak["state"] == "passed" and duration_seconds >= 7200
     items = [
         {"id": "workbench", "label": "本地人工工作台", "state": "ready", "detail": "粘贴、校验、批准和复制可用"},
         {"id": "guard", "label": "发送规则校验", "state": "ready", "detail": "文字、OCR 与二维码检查已接入"},
         {"id": "inference", "label": "本地 AI 服务", "state": inference["state"], "detail": f"{backend} · {inference['detail']}"},
-        {"id": "soak", "label": f"15 分钟稳定性（{backend}）", "state": soak["state"], "detail": f"{soak['runs']} 次请求，{soak['failures']} 次失败"},
+        {
+            "id": "soak",
+            "label": f"本地推理稳定性（{backend}）",
+            "state": soak["state"],
+            "detail": f"{duration_seconds // 60} 分钟 · {soak['runs']} 次请求 · {soak['failures']} 次失败",
+        },
         {
             "id": "drafting",
             "label": "AI 生成草稿",
@@ -99,7 +106,12 @@ def readiness(soak: dict, inference: dict, backend: str = "local") -> dict:
         {"id": "faq", "label": "FAQ 知识库", "state": "todo", "detail": "尚未建立已审核业务答案"},
         {"id": "channels", "label": "真实消息渠道", "state": "todo", "detail": "尚未接入账号、采集器或官方接口"},
         {"id": "operations", "label": "长期运行保障", "state": "todo", "detail": "开机启动、备份、恢复和告警待实现"},
-        {"id": "release_soak", "label": "发布前 2 小时长稳", "state": "todo", "detail": "正式启用前执行"},
+        {
+            "id": "release_soak",
+            "label": "发布前 2 小时长稳",
+            "state": "passed" if long_soak_passed else "todo",
+            "detail": "已连续 2 小时无失败" if long_soak_passed else "正式启用前执行",
+        },
     ]
     ready_count = sum(item["state"] in {"ready", "passed"} for item in items)
     return {

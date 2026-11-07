@@ -30,6 +30,22 @@ class StatusTests(unittest.TestCase):
         self.assertFalse(result["formal_ready"])
         self.assertTrue(any(item["state"] == "todo" for item in result["items"]))
 
+    def test_long_soak_unlocks_release_gate(self):
+        short = readiness(
+            {"state": "passed", "runs": 139, "failures": 0, "elapsed_seconds": 904},
+            {"state": "ready", "detail": "ok"},
+        )
+        gate = next(item for item in short["items"] if item["id"] == "release_soak")
+        self.assertEqual("todo", gate["state"])
+
+        long = readiness(
+            {"state": "passed", "runs": 800, "failures": 0, "elapsed_seconds": 7200},
+            {"state": "ready", "detail": "ok"},
+        )
+        gate = next(item for item in long["items"] if item["id"] == "release_soak")
+        self.assertEqual("passed", gate["state"])
+        self.assertEqual(6, long["ready_count"])
+
     def test_drafting_readiness_follows_inference(self):
         ready = readiness(
             {"state": "passed", "runs": 100, "failures": 0},
