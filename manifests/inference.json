@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "resources": [
+    {
+      "id": "llama-cpp-vulkan",
+      "version": "b12110",
+      "license": "MIT",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12110/llama-b12110-bin-win-vulkan-x64.zip",
+      "sha256": "9732a5e48887ca54d0bfe4af4324dc85fd56cd8cda19b52df3542fa6ebe6874f",
+      "bytes": 37661146,
+      "target": "resources/versions/llama-cpp-vulkan/b12110"
+    },
+    {
+      "id": "llama-cpp-sycl",
+      "version": "b12110",
+      "license": "MIT",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12110/llama-b12110-bin-win-sycl-x64.zip",
+      "sha256": "6c0ac4e6c69c990cc326e04f272e2f953f8ae3d38405b30fe5c9cffb22c520e6",
+      "bytes": 156032541,
+      "target": "resources/versions/llama-cpp-sycl/b12110"
+    },
+    {
+      "id": "qwen3-8b-q4-k-m",
+      "version": "main-2026-11-07",
+      "license": "Apache-2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
+      "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+      "bytes": 5027783488,
+      "target": "resources/models/Qwen3-8B-Q4_K_M.gguf"
+    },
+    {
+      "id": "qwen3-14b-q4-k-m",
+      "version": "main-2026-11-07",
+      "license": "Apache-2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf",
+      "sha256": "500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0",
+      "bytes": 9001752960,
+      "target": "resources/models/Qwen3-14B-Q4_K_M.gguf"
+    },
+    {
+      "id": "qwen3-14b-q5-k-m",
+      "version": "main-2026-11-07",
+      "license": "Apache-2.0",
+      "url": "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q5_K_M.gguf",
+      "sha256": "e7c9aba1129ca2936be9eca01419d9f86af40e08caa01230d5574b34d08e3e31",
+      "bytes": 10514569568,
+      "target": "resources/models/Qwen3-14B-Q5_K_M.gguf"
+    }
+  ]
+}
