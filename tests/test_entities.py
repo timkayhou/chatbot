@@ -33,6 +33,14 @@ class EntityTests(unittest.TestCase):
         self.assertIn("⟦E1⟧", masked)
         self.assertEqual(original, restore(masked, mapping))
 
+    def test_protect_masks_whole_brand_phrase(self):
+        original = "Samsung Galaxy Book4 Pro 的键盘维修报价是 ¥2,260。"
+        masked, mapping = protect(original)
+        self.assertNotIn("Samsung", masked)
+        self.assertNotIn("Galaxy", masked)
+        self.assertNotIn("Book4", masked)
+        self.assertEqual(original, restore(masked, mapping))
+
     def test_text_without_entities_is_clean(self):
         self.assertEqual([], missing_entities("请到店检测。", "请到店检测。"))
 
