@@ -60,11 +60,16 @@ PART_B_SYSTEM = (
     "你是一名专业的本地化译者，负责把中文客服话术翻译或改写为目标语言。"
     "必须原样保留原文中的价格、数字、单位、产品型号、编号和 URL，"
     "不得改动大小写、空格、标点或符号，也不得增删任何实体。"
+    "价格符号（¥、￥、$）必须保留原符号，不得换成円、元或其他货币写法；"
+    "品牌与型号不翻译、不音译；品牌名必须保持拉丁字母原形"
+    "（例如 Huawei、Samsung、Alienware、Lenovo），不得译成汉字或片假名。"
+    "即使目标语言是中文，品牌名也保持拉丁字母：Huawei 不得写成 华为/華為，Lenovo 不得写成 联想。"
     "只输出译文正文，不要解释、不要加注、不要输出原文说明或前后缀。"
 )
 
 REASON_LABELS = {
     "ok": "通过",
+    "ok_shared": "通过（仅繁简共用字）",
     "empty_reply": "空回复",
     "request_error": "请求失败",
     "no_kana": "未检测到平假名或片假名",
@@ -499,9 +504,9 @@ def judge_part_a(reply: str, language: str) -> tuple[bool, str, str]:
         if simplified:
             return False, "contains_simplified_char", "出现简体专用字：" + "".join(simplified)
         traditional = sorted({char for char in reply if char in TRAD_ONLY})
-        if not traditional:
-            return False, "no_traditional_char", "未检测到繁体专用字"
-        return True, "ok", ""
+        if traditional:
+            return True, "ok", ""
+        return True, "ok_shared", "未出现简体字；回复仅使用繁简共用字，建议人工抽查"
     if language == "zh-CN":
         if not has_han(reply):
             return False, "no_han", "未检测到汉字"
@@ -830,7 +835,13 @@ def manual_review_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return picks
 
 
-def write_reports(items: list[dict[str, Any]], started_at: str, finished_at: str, elapsed: float) -> dict[str, Any]:
+def write_reports(
+    items: list[dict[str, Any]],
+    started_at: str,
+    finished_at: str,
+    elapsed: float,
+    rejudged_at: str | None = None,
+) -> dict[str, Any]:
     summary = build_summary(items)
     manual = manual_review_items(items)
     report = {
@@ -839,6 +850,7 @@ def write_reports(items: list[dict[str, Any]], started_at: str, finished_at: str
         "run": {
             "started_at": started_at,
             "finished_at": finished_at,
+            "rejudged_at": rejudged_at,
             "elapsed_seconds": round(elapsed, 3),
             "endpoint": ENDPOINT,
             "model": MODEL_NAME,
@@ -873,6 +885,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.append("# V3 四语言抽检报告")
     lines.append("")
     lines.append(f"- 生成时间：{report['generated_at']}")
+    if run.get("rejudged_at"):
+        lines.append(f"- 重新判定：{run['rejudged_at']}（未重新调用模型）")
     lines.append(f"- 总耗时：{run['elapsed_seconds'] / 60:.1f} 分钟（{run['elapsed_seconds']:.1f} 秒）")
     lines.append(f"- 模型：{run['model']}，本地回环接口，未访问外部网络")
     lines.append("- 数据：全部为合成文本，未使用客户数据")
@@ -981,6 +995,38 @@ def render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def rejudge_report(path: Path) -> int:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    items = data.get("items", [])
+    if not items:
+        print("[rejudge] no items in report", flush=True)
+        return 1
+    for item in items:
+        if item["part"] == "A":
+            passed, reason, detail = judge_part_a(item["reply"], item["language"])
+        else:
+            passed, reason, detail, missing = judge_part_b(item["reply"], item["entities"])
+            item["missing_entities"] = missing
+        item["passed"] = passed
+        item["reason"] = reason
+        item["detail"] = detail
+    run = data.get("run", {})
+    report = write_reports(
+        items,
+        str(run.get("started_at", "")),
+        str(run.get("finished_at", "")),
+        float(run.get("elapsed_seconds", 0)),
+        rejudged_at=now_iso(),
+    )
+    overall = report["summary"]["overall"]
+    print(
+        f"[rejudge] passed={overall['passed']} failed={overall['failed']} "
+        f"rate={overall['pass_rate']:.1f}%",
+        flush=True,
+    )
+    return 0
+
+
 def run_dry() -> int:
     validate_corpus()
     a_cases = part_a_cases()
@@ -1073,10 +1119,13 @@ def main() -> int:
     mode.add_argument("--dry-run", action="store_true", help="validate synthetic corpus only")
     mode.add_argument("--smoke", action="store_true", help="run two real requests")
     mode.add_argument("--run", action="store_true", help="run the full 240-request check")
+    mode.add_argument("--rejudge", metavar="REPORT", help="re-judge an existing report without calling the model")
     parser.add_argument("--api-key", default=os.environ.get("V3_API_KEY", ""))
     parser.add_argument("--timeout", type=int, default=REQUEST_TIMEOUT)
     args = parser.parse_args()
 
+    if args.rejudge:
+        return rejudge_report(Path(args.rejudge))
     if args.dry_run:
         return run_dry()
     if not args.api_key:

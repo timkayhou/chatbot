@@ -20,6 +20,10 @@ class EntityTests(unittest.TestCase):
         )
         self.assertEqual([], missing)
 
+    def test_missing_model_token_is_detected(self):
+        self.assertIn("X1", missing_entities("ThinkPad X1 Carbon 换屏。", "换屏。"))
+        self.assertEqual([], missing_entities("ThinkPad X1 Carbon 换屏。", "ThinkPad X1 Carbon 换屏。"))
+
     def test_text_without_entities_is_clean(self):
         self.assertEqual([], missing_entities("请到店检测。", "请到店检测。"))
 
