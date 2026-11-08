@@ -7,7 +7,11 @@ the contract and the states the run center may display.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Protocol
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+import urllib.request
 
 
 STATE_LABELS = {
@@ -48,6 +52,7 @@ class IncomingMessage:
     body: str
     occurred_at: str
     locale: str = "zh-CN"
+    message_id: str = ""
 
 
 class ReadOnlyAdapter(Protocol):
@@ -89,3 +94,74 @@ class ConnectionManager:
         if adapter is None:
             raise KeyError(f"no adapter for channel: {channel_id}")
         return adapter.read_messages(limit)
+
+
+@dataclass
+class HttpPollingAdapter:
+    """Generic read-only adapter for the local mock platform or a private bridge.
+
+    It can read a session state and new messages; it deliberately has no send
+    or write method.
+    """
+
+    channel_id: str
+    base_url: str
+    token: str
+    timeout: float = 5.0
+    cursor: int = 0
+
+    def _get(self, path: str, query: dict[str, object] | None = None) -> dict:
+        url = f"{self.base_url.rstrip('/')}{path}"
+        if query:
+            url = f"{url}?{urlencode(query)}"
+        request = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {self.token}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.load(response)
+
+    def probe(self) -> AdapterStatus:
+        try:
+            data = self._get("/session")
+        except HTTPError as error:
+            error.close()
+            return AdapterStatus(
+                state="error",
+                detail=f"{type(error).__name__}: {error}",
+                adapter="HttpPollingAdapter",
+            )
+        except (OSError, json.JSONDecodeError) as error:
+            return AdapterStatus(
+                state="error",
+                detail=f"{type(error).__name__}: {error}",
+                adapter="HttpPollingAdapter",
+            )
+        try:
+            return AdapterStatus(
+                state=str(data.get("state") or "unknown"),
+                detail=str(data.get("detail") or ""),
+                client_version=str(data.get("client_version") or ""),
+                adapter="HttpPollingAdapter",
+                read_ok=str(data.get("state")) == "read_ok",
+                send_ok=False,
+            )
+        except ValueError as error:
+            return AdapterStatus(state="error", detail=str(error), adapter="HttpPollingAdapter")
+
+    def read_messages(self, limit: int = 20) -> list[IncomingMessage]:
+        data = self._get("/messages", {"since": self.cursor, "limit": limit})
+        messages = [
+            IncomingMessage(
+                external_id=str(item["external_id"]),
+                customer_name=str(item["customer_name"]),
+                body=str(item["body"]),
+                occurred_at=str(item["occurred_at"]),
+                locale=str(item.get("locale") or "zh-CN"),
+                message_id=str(item.get("message_id") or ""),
+            )
+            for item in data.get("messages", [])
+        ]
+        self.cursor = int(data.get("cursor", self.cursor))
+        return messages
