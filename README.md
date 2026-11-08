@@ -67,6 +67,28 @@ $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\rotate_logs.py
 
 真实适配器属于本地私有代码，放在 `private/`，不进入公开仓库；未注册适配器的渠道保持“模拟”状态。采集到的消息通过 `Store.ingest_messages` 幂等写入，重复读取不会产生重复消息。
 
+## 平台规则校验
+
+每个渠道可以绑定一套本地规则词典，放在 `private/rules/<platform>.json`（不提交）。词典覆盖站外引流、联系方式、二维码、明显交易词和其他平台名；聊天草稿按当前渠道的词典预检，命中即显示拦截，批准接口也会再次拒绝。
+
+规则词典只做拦截，不提供拆字、谐音或图片变形等绕过写法。公开仓库不含具体平台词表，缺少本地词典时仍会检查 URL、电话样式数字、二维码和全局词表。
+
+## 适配器测试环境
+
+不需要真实账号即可跑通只读适配器链路：
+
+```powershell
+# 终端 1：本地模拟平台（仅回环，只读，POST 返回 405）
+$env:PYTHONPATH = "src"
+.venv\Scripts\python.exe scripts\mock_platform.py --port 8091 --token test-token
+
+# 终端 2：用轮询适配器读取并入库（重复运行不会重复写入）
+$env:PYTHONPATH = "src"
+.venv\Scripts\python.exe scripts\adapter_harness.py --database data\adapter-demo.sqlite
+```
+
+`scripts/adapter_harness.py` 会先探测连接状态，再读取 4 条合成消息并幂等写入；输出包含 `sent: false`。真实适配器只需实现同样的 `probe()` / `read_messages()` 契约，真正的客户端和账号仍由你在本机提供。
+
 ## 测试
 
 ```powershell
