@@ -61,6 +61,17 @@ $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\rotate_logs.py
 - 运行日志写入 `data/logs/workbench.log`，按 2 MB × 5 轮转。
 - 权限不足时，启动项会退回当前用户的“启动”文件夹，维护脚本仍可手动运行。
 
+## AI 协作与本地循环
+
+多模型协作规则见 [`docs/ai-collaboration-v2.md`](docs/ai-collaboration-v2.md)。本地循环只读检查本仓库与同级 `my-site` 的 Git 快照，不调用模型、不联网、不修改仓库：
+
+```powershell
+$env:PYTHONPATH = "src"
+.venv\Scripts\python.exe scripts\local_loop.py --once
+```
+
+快照无变化时不写报告；变化或异常时写入 `data/local-loop/` 的 Markdown/JSON，交给 Codex 核对。每日维护也会执行一次。
+
 ## 真实渠道（只读）
 
 每个平台通过 `src/workbench/adapters.py` 的只读适配器接入：适配器只能 `probe()` 连接状态和读取消息，接口中不提供发送方法。连接状态分为未安装、未启动、未登录、已登录、读取正常、发送受限、需要人工、异常和模拟，运行中心会逐个渠道显示。
