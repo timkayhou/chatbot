@@ -34,6 +34,7 @@ class GuardResult:
 @dataclass(frozen=True)
 class GuardPolicy:
     blocked_terms: tuple[str, ...] = ()
+    blocked_patterns: tuple[str, ...] = ()
     allowed_domains: tuple[str, ...] = ()
     block_urls: bool = True
     block_phone_numbers: bool = True
@@ -65,6 +66,12 @@ def check_text(
     """Check visible text plus caller-supplied OCR and QR decoder output."""
     hits: list[GuardHit] = []
     sources = (("body", text),) + tuple(("ocr", item) for item in extracted_text)
+    patterns = []
+    for pattern in policy.blocked_patterns:
+        try:
+            patterns.append(re.compile(pattern))
+        except re.error:  # a broken local rule must not disable the guard
+            continue
 
     for source, value in sources:
         normalized = normalize(value)
@@ -81,6 +88,8 @@ def check_text(
             if compact(term) and compact(term) in collapsed:
                 hits.append(GuardHit("term.blocked", source, "blocked configured term"))
                 break
+        if patterns and any(pattern.search(normalized) for pattern in patterns):
+            hits.append(GuardHit("term.pattern", source, "blocked configured pattern"))
 
     if policy.block_qr_payloads:
         for payload in qr_payloads:

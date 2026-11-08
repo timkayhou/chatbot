@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 from workbench.app import create_server
 from workbench.inference import GenerationUnavailable
+from workbench.policies import GENERIC, PlatformPolicy
 
 try:
     import qrcode
@@ -21,15 +22,26 @@ except ImportError:
 
 
 TEST_CHANNELS = [
-    {"id": "test-channel", "name": "测试渠道", "accent": "#123456", "skin": "plain", "sort_order": 1},
+    {
+        "id": "test-channel",
+        "name": "测试渠道",
+        "accent": "#123456",
+        "skin": "plain",
+        "sort_order": 1,
+        "policy": "strict",
+    },
 ]
+TEST_POLICIES = {
+    "generic": GENERIC,
+    "strict": PlatformPolicy(id="strict", name="测试规则", version="t1", blocked_terms=("加微信", "转账")),
+}
 
 
 class AppTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.database = Path(self.temp.name) / "app.sqlite"
-        self.server = create_server(self.database, 0, channels=TEST_CHANNELS)
+        self.server = create_server(self.database, 0, channels=TEST_CHANNELS, policies=TEST_POLICIES)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = f"http://127.0.0.1:{self.server.server_port}"
@@ -80,6 +92,15 @@ class AppTests(unittest.TestCase):
         self.assertEqual("simulated", channels[0]["state"])
         self.assertEqual("模拟", channels[0]["state_label"])
         self.assertTrue(channels[0]["detail"])
+        self.assertEqual("测试规则", channels[0]["policy_name"])
+
+    def test_channel_policy_blocks_diverting_draft(self):
+        conversation = self.make_conversation("怎么联系你们？")
+        suggestion = {"draft": "可以加微信详聊。", "seconds": 0.2, "tokens": 8}
+        with patch("workbench.app.generate_draft", return_value=suggestion):
+            result = self.post(f"/api/conversations/{conversation}/suggest", {})
+        self.assertEqual("block", result["guard"]["verdict"])
+        self.assertIn("term.blocked", [hit["rule"] for hit in result["guard"]["hits"]])
 
     def test_status_includes_alerts(self):
         data = self.get("/api/status")

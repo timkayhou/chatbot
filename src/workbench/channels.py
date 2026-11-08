@@ -53,6 +53,7 @@ def load_channels(path: str | Path = "private/channels.json") -> list[dict]:
                 "accent": _accent(item.get("accent"), defaults[min(index, 3)]["accent"]),
                 "skin": str(item.get("skin") or "plain")[:20],
                 "sort_order": int(item.get("sort_order") or index + 1),
+                "policy": str(item.get("policy") or "generic")[:40],
             }
         )
     return channels or defaults

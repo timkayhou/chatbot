@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS channels (
   sort_order INTEGER NOT NULL DEFAULT 0,
   connection TEXT NOT NULL DEFAULT 'mock',
   enabled INTEGER NOT NULL DEFAULT 1,
+  policy TEXT NOT NULL DEFAULT 'generic',
   client_version TEXT NOT NULL DEFAULT '',
   adapter TEXT NOT NULL DEFAULT '',
   read_capability TEXT NOT NULL DEFAULT 'unknown',
@@ -160,6 +161,7 @@ class Store:
             connection.execute("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'inbound'")
         channel_columns = {row[1] for row in connection.execute("PRAGMA table_info(channels)")}
         channel_additions = {
+            "policy": "TEXT NOT NULL DEFAULT 'generic'",
             "client_version": "TEXT NOT NULL DEFAULT ''",
             "adapter": "TEXT NOT NULL DEFAULT ''",
             "read_capability": "TEXT NOT NULL DEFAULT 'unknown'",
@@ -383,15 +385,16 @@ class Store:
             db.execute("BEGIN IMMEDIATE")
             for channel in channels:
                 db.execute(
-                    "INSERT INTO channels(id,name,accent,skin,sort_order) VALUES(?,?,?,?,?) "
+                    "INSERT INTO channels(id,name,accent,skin,sort_order,policy) VALUES(?,?,?,?,?,?) "
                     "ON CONFLICT(id) DO UPDATE SET name=excluded.name,accent=excluded.accent,"
-                    "skin=excluded.skin,sort_order=excluded.sort_order",
+                    "skin=excluded.skin,sort_order=excluded.sort_order,policy=excluded.policy",
                     (
                         channel["id"],
                         channel["name"],
                         channel["accent"],
                         channel.get("skin", "plain"),
                         int(channel.get("sort_order", 0)),
+                        str(channel.get("policy") or "generic")[:40],
                     ),
                 )
             db.commit()
@@ -604,7 +607,7 @@ class Store:
         with self.connect() as db:
             row = db.execute(
                 "SELECT c.id,c.label,c.language,c.takeover,c.unread,c.channel_id,c.created_at,c.updated_at,"
-                "ch.name AS channel_name,ch.accent AS channel_accent,ch.skin AS channel_skin,"
+                "ch.name AS channel_name,ch.accent AS channel_accent,ch.skin AS channel_skin,ch.policy AS channel_policy,"
                 "cu.id AS customer_id,cu.external_id,cu.display_name,cu.avatar,cu.note AS customer_note,"
                 "cu.tags_json,cu.locale,cu.profile_json "
                 "FROM conversations c LEFT JOIN channels ch ON ch.id=c.channel_id "

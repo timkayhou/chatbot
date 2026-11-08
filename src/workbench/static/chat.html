@@ -191,6 +191,7 @@ function renderInfo() {
     <div class="who-card"><div class="ava" style="background:${ch.accent || '#3B6EF6'}">${(c.display_name || '?').slice(0, 1)}</div>
       <div><b>${escapeHtml(c.display_name || c.label)}</b><div style="font-size:12px;color:var(--muted)">${ch.name || c.channel_id}</div></div></div>
     <div class="kv"><span>渠道</span><span>${ch.name || c.channel_id}（模拟）</span></div>
+    <div class="kv"><span>回复规则</span><span>${ch.policy_name || '通用'}${ch.policy_version ? ' · ' + ch.policy_version : ''}</span></div>
     <div class="kv"><span>语言</span><span>${c.locale || c.language}</span></div>
     <div class="kv"><span>外部标识</span><span>${escapeHtml(c.external_id || '—')}</span></div>
     <div class="kv"><span>会话编号</span><span>#${c.id}</span></div>

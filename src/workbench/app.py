@@ -24,6 +24,7 @@ from .guard import GuardPolicy, check_text
 from .inference import GenerationUnavailable, generate_draft
 from .maintenance import backup_age_hours, maybe_backup, rotate_logs
 from .media import MediaUnavailable, analyze_image
+from .policies import GENERIC, PlatformPolicy, guard_for, load_policies
 from .store import Store
 from .status import alerts, inference_health, inference_test, parse_soak_log, readiness
 
@@ -41,6 +42,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     inference_backend = "local"
     soak_log = Path("data/soak-sycl-15m.out.log")
     connection_manager = ConnectionManager()
+    platform_policies: dict[str, PlatformPolicy] = {}
+    channel_guards: dict[str, GuardPolicy] = {}
 
     def _json(self, status: int, value: object) -> None:
         body = json.dumps(value, ensure_ascii=False).encode()
@@ -85,7 +88,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             raise ValueError("field is too long")
         return text
 
-    def _draft(self, inbound: str, language: str) -> dict:
+    def _draft(self, inbound: str, language: str, policy: GuardPolicy | None = None) -> dict:
         """FAQ first, model second; either way only a draft is returned."""
         faq = self.store.match_faq(inbound, language)
         reference: str | None = None
@@ -102,7 +105,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 reference=reference,
             )
             source = "ai"
-        checked = check_text(result["draft"], self.policy)
+        checked = check_text(result["draft"], policy or self.policy)
         result["guard"] = {"verdict": checked.verdict, "hits": [hit.__dict__ for hit in checked.hits]}
         result["source"] = source
         result["faq"] = faq
@@ -184,6 +187,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     channel["detail"] = "模拟环境，不连接真实账号" if simulated else ""
                     channel["read_ok"] = channel["read_capability"] == "read_ok"
                 channel["state_label"] = STATE_LABELS.get(channel["state"], channel["state"])
+                policy = self.platform_policies.get(channel.get("policy") or "", GENERIC)
+                channel["policy_name"] = policy.name
+                channel["policy_version"] = policy.version
             self._json(HTTPStatus.OK, {"channels": channels, "mode": "mock"})
             return
         if path == "/api/conversations":
@@ -328,7 +334,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             if not inbound:
                 raise ValueError("conversation has no inbound message")
             language = conversation.get("locale") or conversation.get("language") or "zh-CN"
-            result = self._draft(inbound, language)
+            policy = self.channel_guards.get(conversation.get("channel_policy") or "", self.policy)
+            result = self._draft(inbound, language, policy)
             self._json(HTTPStatus.OK, {**result, "mode": "suggested"})
             return
         raise ValueError("invalid conversation action")
@@ -484,9 +491,11 @@ def create_server(
     soak_log: str | Path = "data/soak-sycl-15m.out.log",
     channels: list[dict] | None = None,
     adapters: list | None = None,
+    policies: dict[str, PlatformPolicy] | None = None,
 ) -> ThreadingHTTPServer:
     store = Store(database)
     store.sync_channels(channels if channels is not None else load_channels())
+    loaded_policies = policies if policies is not None else load_policies()
     handler = type(
         "BoundWorkbenchHandler",
         (WorkbenchHandler,),
@@ -497,6 +506,8 @@ def create_server(
             "inference_backend": inference_backend,
             "soak_log": Path(soak_log),
             "connection_manager": ConnectionManager.from_list(adapters),
+            "platform_policies": loaded_policies,
+            "channel_guards": {pid: guard_for(policy) for pid, policy in loaded_policies.items()},
         },
     )
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
