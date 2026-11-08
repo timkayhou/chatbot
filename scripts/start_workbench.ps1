@@ -3,6 +3,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+& (Join-Path $PSScriptRoot "start_inference.ps1")
+
 $envFile = Join-Path $root "private\workbench.env"
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {

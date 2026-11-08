@@ -51,6 +51,7 @@ $env:PYTHONPATH = "src"
 
 ```powershell
 powershell -File scripts\install_startup.ps1   # 登录启动 + 每日 03:30 维护
+powershell -File scripts\start_inference.ps1   # 启动 16K 上下文的本地千问推理服务
 powershell -File scripts\start_workbench.ps1   # 立即按私有环境变量启动
 $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\backup_db.py
 $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\rotate_logs.py
@@ -60,6 +61,7 @@ $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\rotate_logs.py
 - 应用启动时以及之后每小时会检查备份是否超过 24 小时，并归档 30 天前的日志。
 - 运行日志写入 `data/logs/workbench.log`，按 2 MB × 5 轮转。
 - 权限不足时，启动项会退回当前用户的“启动”文件夹，维护脚本仍可手动运行。
+- 工作台启动链会先确认本地千问推理服务可用；已运行的健康实例不会重复启动。当前验证配置固定使用 SYCL、Qwen3-14B Q5 和 16K 上下文。
 
 ## AI 协作与本地循环
 
