@@ -104,7 +104,7 @@ $env:V3_API_KEY = "<本地推理密钥>"
 .venv\Scripts\python.exe scripts\v3_language_check.py --run
 ```
 
-结果写入 `data/v3-report.json` 和 `data/v3-report.md`。
+结果写入 `data/v3-report.json` 和 `data/v3-report.md`。Part B 会在生成前把价格、品牌型号、编号和 URL 替换为占位符，生成后还原；`--rejudge <report>` 可在不重新调用模型的情况下按最新判定口径重算报告。
 
 图片只在本机内存中分析，数据库保存文件摘要、OCR 文本和二维码结果，不保存图片本体。特定平台的规则词典属于本地私有配置，不进入公开仓库。
 
