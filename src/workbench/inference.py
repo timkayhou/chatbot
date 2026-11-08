@@ -51,6 +51,8 @@ def build_messages(inbound: str, language: str, reference: str | None = None) ->
             f"\n下面是一条已审核的参考答案，请按客户语言改写后使用；"
             f"价格、数字、单位、产品型号和 URL 必须原样保留，不得添加未确认的信息：\n{reference}"
         )
+        if "⟦" in reference:
+            instruction += "\n参考中形如 ⟦E1⟧ 的占位符必须原样保留，不得翻译、删除或改写。"
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"{instruction}\n\n客户消息：\n{inbound}"},

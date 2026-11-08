@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from workbench.entities import protect, restore
 from workbench.inference import LANGUAGE_NAMES, SYSTEM_PROMPT, build_messages
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -554,7 +555,8 @@ def part_a_cases() -> list[dict[str, Any]]:
 def part_b_user_prompt(source: str, language: str) -> str:
     return (
         f"目标语言：{LANGUAGE_NAMES[language]}\n"
-        "请翻译/改写为上述目标语言。价格、数字、单位、型号、编号和 URL 必须原样保留，不要解释。\n\n"
+        "请翻译/改写为上述目标语言。价格、数字、单位、型号、编号和 URL 必须原样保留，不要解释。\n"
+        "文中形如 ⟦E1⟧ 的占位符必须原样保留，不得翻译、删除或改写。\n\n"
         f"原文：\n{source}"
     )
 
@@ -569,7 +571,8 @@ def part_b_cases() -> list[dict[str, Any]]:
                 "id": source["ticket"],
                 "url": source["url"],
             }
-            prompt = part_b_user_prompt(source["text"], language)
+            protected_text, mapping = protect(source["text"])
+            prompt = part_b_user_prompt(protected_text, language)
             cases.append(
                 {
                     "id": f"B-{language}-{index:03d}",
@@ -583,6 +586,7 @@ def part_b_cases() -> list[dict[str, Any]]:
                     ],
                     "source": source["text"],
                     "entities": entities,
+                    "mapping": mapping,
                 }
             )
     return cases
@@ -673,6 +677,8 @@ def execute_case(
         passed, reason, detail = judge_part_a(reply, case["language"])
         missing = []
     else:
+        if case.get("mapping"):
+            reply = restore(reply, case["mapping"])
         passed, reason, detail, missing = judge_part_b(reply, case["entities"])
     item = {
         "id": case["id"],
@@ -985,8 +991,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
     lines.append("- zh-CN：含汉字、不含假名、不含繁体专用字。空回复一律失败。")
     lines.append(
-        "- Part B：system 为专业本地化译者；回复中价格、型号、编号、URL 四个实体必须"
-        "逐字原样出现（区分大小写与符号），空回复失败。"
+        "- Part B：生成前对价格、品牌型号、编号和 URL 做占位符保护，生成后还原；"
+        "system 为专业本地化译者。回复中四个实体必须逐字原样出现（区分大小写与符号），"
+        "空回复或丢失占位符均失败。"
     )
     lines.append(
         "- 本报告只记录合成提示词与模型回复；未包含平台名、账号或真实客户信息。"

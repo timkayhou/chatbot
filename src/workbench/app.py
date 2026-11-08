@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .adapters import STATE_LABELS, ConnectionManager
 from .channels import load_channels
-from .entities import missing_entities
+from .entities import missing_entities, protect, restore
 from .guard import GuardPolicy, check_text
 from .inference import GenerationUnavailable, generate_draft
 from .maintenance import backup_age_hours, maybe_backup, rotate_logs
@@ -96,18 +96,24 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         """FAQ first, model second; either way only a draft is returned."""
         faq = self.store.match_faq(inbound, language)
         reference: str | None = None
+        mapping: dict[str, str] = {}
         if faq and faq.get("language_supported"):
             result: dict = {"draft": faq["answer"], "seconds": 0.0, "tokens": 0}
             source = "faq"
         else:
             reference = faq["answer"] if faq else None
+            protected_reference = None
+            if reference:
+                protected_reference, mapping = protect(reference)
             result = generate_draft(
                 self.inference_url,
                 self.inference_api_key,
                 inbound,
                 language,
-                reference=reference,
+                reference=protected_reference,
             )
+            if mapping:
+                result["draft"] = restore(result["draft"], mapping)
             source = "ai"
         checked = check_text(result["draft"], policy or self.policy)
         result["guard"] = {"verdict": checked.verdict, "hits": [hit.__dict__ for hit in checked.hits]}
