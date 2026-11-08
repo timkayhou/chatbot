@@ -80,7 +80,11 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _check_draft(self, draft_id: int, body: str):
         extracted_text, qr_payloads = self.store.media_inputs(draft_id)
-        return check_text(body, self.policy, extracted_text=extracted_text, qr_payloads=qr_payloads)
+        row = self.store.get_draft(draft_id)
+        channel = self.store.get_channel(str(row["channel_id"])) if row else None
+        policy_id = (channel or {}).get("policy") or "generic"
+        policy = self.channel_guards.get(policy_id, self.policy)
+        return check_text(body, policy, extracted_text=extracted_text, qr_payloads=qr_payloads)
 
     def _text(self, value: object, limit: int = 2000) -> str:
         text = str(value or "").strip()
@@ -258,6 +262,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 inbound,
                 key,
                 draft,
+                self._text(data.get("channel", "manual"), 40) or "manual",
             )
             self._json(HTTPStatus.CREATED, {"id": draft_id, "mode": "manual"})
             return

@@ -255,6 +255,15 @@ class AppTests(unittest.TestCase):
             status, _ = self.post_error("/api/suggest", {"inbound": "hi", "language": "zh-CN"})
         self.assertEqual(503, status)
 
+    def test_workbench_uses_channel_policy(self):
+        created = self.post(
+            "/api/work",
+            {"inbound": "怎么联系", "draft": "可以加微信详聊。", "channel": "test-channel"},
+        )
+        checked = self.post(f"/api/drafts/{created['id']}/check", {})
+        self.assertEqual("block", checked["verdict"])
+        self.assertIn("term.blocked", [hit["rule"] for hit in checked["hits"]])
+
     def test_manual_workflow_never_reports_sent(self):
         created = self.post("/api/work", {"inbound": "需要帮助", "draft": "您好，我来协助您。"})
         draft_id = created["id"]

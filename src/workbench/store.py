@@ -183,13 +183,21 @@ class Store:
         finally:
             connection.close()
 
-    def create_work(self, label: str, language: str, inbound: str, dedupe_key: str, draft: str) -> int:
+    def create_work(
+        self,
+        label: str,
+        language: str,
+        inbound: str,
+        dedupe_key: str,
+        draft: str,
+        channel_id: str = "manual",
+    ) -> int:
         now = utc_now()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             conversation = db.execute(
-                "INSERT INTO conversations(label,language,created_at) VALUES(?,?,?) RETURNING id",
-                (label, language, now),
+                "INSERT INTO conversations(label,language,channel_id,created_at) VALUES(?,?,?,?) RETURNING id",
+                (label, language, channel_id, now),
             ).fetchone()[0]
             message = db.execute(
                 "INSERT INTO messages(conversation_id,direction,body,dedupe_key,created_at) VALUES(?,'in',?,?,?) RETURNING id",
@@ -372,7 +380,7 @@ class Store:
     def get_draft(self, draft_id: int) -> sqlite3.Row | None:
         with self.connect() as db:
             return db.execute(
-                "SELECT d.*, c.label, c.language, c.takeover, m.body AS inbound FROM drafts d "
+                "SELECT d.*, c.label, c.language, c.takeover, c.channel_id, m.body AS inbound FROM drafts d "
                 "JOIN conversations c ON c.id=d.conversation_id "
                 "JOIN messages m ON m.id=d.based_on_message_id WHERE d.id=?",
                 (draft_id,),
@@ -408,6 +416,11 @@ class Store:
                 "FROM channels ch WHERE ch.enabled=1 ORDER BY ch.sort_order,ch.id"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_channel(self, channel_id: str) -> dict | None:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM channels WHERE id=?", (channel_id,)).fetchone()
+        return dict(row) if row else None
 
     def set_channel_connection(
         self,
