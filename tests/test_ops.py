@@ -9,6 +9,7 @@ from pathlib import Path
 from workbench.maintenance import backup_database as backup
 from workbench.maintenance import maybe_backup
 from workbench.maintenance import rotate_logs as rotate
+from workbench.maintenance import verify_backup_restore
 
 
 class BackupTests(unittest.TestCase):
@@ -45,6 +46,23 @@ class BackupTests(unittest.TestCase):
             target = Path(directory) / "backups"
             self.assertIsNotNone(maybe_backup(database, target, max_age_hours=24))
             self.assertIsNone(maybe_backup(database, target, max_age_hours=24))
+
+    def test_restore_drill_uses_disposable_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "workbench.sqlite"
+            with closing(sqlite3.connect(database)) as connection:
+                connection.execute("CREATE TABLE items (id INTEGER PRIMARY KEY)")
+                connection.execute("INSERT INTO items DEFAULT VALUES")
+                connection.commit()
+            result = verify_backup_restore(database)
+            self.assertEqual("ok", result["integrity"])
+            self.assertEqual(1, result["tables"])
+            self.assertTrue(result["temporary_restore_removed"])
+
+    def test_restore_drill_rejects_missing_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                verify_backup_restore(Path(directory) / "missing.sqlite")
 
 
 class RotateTests(unittest.TestCase):

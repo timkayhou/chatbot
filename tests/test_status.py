@@ -94,7 +94,8 @@ class StatusTests(unittest.TestCase):
         operations = next(item for item in result["items"] if item["id"] == "operations")
         self.assertEqual("attention", operations["state"])
         self.assertIn("已实现", operations["detail"])
-        self.assertIn("待完成", operations["detail"])
+        self.assertIn("恢复演练", operations["detail"])
+        self.assertIn("启动项现场验收待完成", operations["detail"])
 
     def test_failure_after_heartbeat_marks_soak_failed(self):
         with tempfile.TemporaryDirectory() as directory:

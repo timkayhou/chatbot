@@ -54,10 +54,12 @@ powershell -File scripts\install_startup.ps1   # 登录启动 + 每日 03:30 维
 powershell -File scripts\start_inference.ps1   # 启动 16K 上下文的本地千问推理服务
 powershell -File scripts\start_workbench.ps1   # 立即按私有环境变量启动
 $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\backup_db.py
+$env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\verify_restore.py
 $env:PYTHONPATH = "src"; .venv\Scripts\python.exe scripts\rotate_logs.py
 ```
 
 - 备份使用 SQLite 在线备份，默认保留 14 份，位于 `data/backups/`。
+- 恢复演练会把最新备份还原到系统临时目录并执行完整性检查，不覆盖生产数据库，退出后删除临时副本。
 - 应用启动时以及之后每小时会检查备份是否超过 24 小时，并归档 30 天前的日志。
 - 运行日志写入 `data/logs/workbench.log`，按 2 MB × 5 轮转。
 - 权限不足时，启动项会退回当前用户的“启动”文件夹，维护脚本仍可手动运行。

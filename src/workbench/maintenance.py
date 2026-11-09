@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 import sqlite3
+import tempfile
 
 
 def backup_age_hours(target_dir: str | Path = "data/backups") -> float | None:
@@ -53,6 +54,30 @@ def backup_database(
         "bytes": destination.stat().st_size,
         "integrity": integrity,
         "removed": removed,
+    }
+
+
+def verify_backup_restore(backup: str | Path) -> dict:
+    """Restore a backup into a temporary database and verify the restored copy."""
+    source = Path(backup)
+    if not source.is_file():
+        raise FileNotFoundError(f"backup not found: {source}")
+
+    with tempfile.TemporaryDirectory(prefix="workbench-restore-") as directory:
+        restored = Path(directory) / "restored.sqlite"
+        source_uri = f"{source.resolve().as_uri()}?mode=ro"
+        with closing(sqlite3.connect(source_uri, uri=True)) as source_db, closing(sqlite3.connect(restored)) as target_db:
+            source_db.backup(target_db)
+            integrity = target_db.execute("PRAGMA integrity_check").fetchone()[0]
+            table_count = target_db.execute(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchone()[0]
+    return {
+        "backup": str(source),
+        "bytes": source.stat().st_size,
+        "integrity": integrity,
+        "tables": table_count,
+        "temporary_restore_removed": not restored.exists(),
     }
 
 

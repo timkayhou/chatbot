@@ -142,7 +142,7 @@ def readiness(
             "id": "operations",
             "label": "长期运行保障",
             "state": "attention",
-            "detail": "启动、备份、日志轮转和告警已实现；恢复演练与启动项现场验收待完成",
+            "detail": "启动、备份、恢复演练、日志轮转和告警已实现；启动项现场验收待完成",
         },
         {
             "id": "release_soak",
