@@ -138,7 +138,12 @@ def readiness(
         },
         {"id": "faq", "label": "FAQ 知识库", "state": faq_state, "detail": f"已审核 {approved_faq} 条，草稿可引用" if approved_faq else "尚未建立已审核业务答案"},
         {"id": "channels", "label": "真实消息渠道", "state": "todo", "detail": f"已配置 {mock_channels} 个模拟渠道；真实只读采集未接入"},
-        {"id": "operations", "label": "长期运行保障", "state": "todo", "detail": "开机启动、备份、恢复和告警待实现"},
+        {
+            "id": "operations",
+            "label": "长期运行保障",
+            "state": "attention",
+            "detail": "启动、备份、日志轮转和告警已实现；恢复演练与启动项现场验收待完成",
+        },
         {
             "id": "release_soak",
             "label": "发布前 2 小时长稳",

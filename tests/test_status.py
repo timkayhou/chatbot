@@ -86,6 +86,16 @@ class StatusTests(unittest.TestCase):
         drafting = next(item for item in offline["items"] if item["id"] == "drafting")
         self.assertEqual("attention", drafting["state"])
 
+    def test_operations_reports_implemented_but_unverified_state(self):
+        result = readiness(
+            {"state": "passed", "runs": 800, "failures": 0, "elapsed_seconds": 7200},
+            {"state": "ready", "detail": "ok"},
+        )
+        operations = next(item for item in result["items"] if item["id"] == "operations")
+        self.assertEqual("attention", operations["state"])
+        self.assertIn("已实现", operations["detail"])
+        self.assertIn("待完成", operations["detail"])
+
     def test_failure_after_heartbeat_marks_soak_failed(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "soak.log"
