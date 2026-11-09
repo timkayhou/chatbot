@@ -69,7 +69,7 @@ class StatusTests(unittest.TestCase):
         )
         gate = next(item for item in long["items"] if item["id"] == "release_soak")
         self.assertEqual("passed", gate["state"])
-        self.assertEqual(6, long["ready_count"])
+        self.assertEqual(7, long["ready_count"])
 
     def test_drafting_readiness_follows_inference(self):
         ready = readiness(
@@ -86,16 +86,15 @@ class StatusTests(unittest.TestCase):
         drafting = next(item for item in offline["items"] if item["id"] == "drafting")
         self.assertEqual("attention", drafting["state"])
 
-    def test_operations_reports_implemented_but_unverified_state(self):
+    def test_operations_reports_verified_state(self):
         result = readiness(
             {"state": "passed", "runs": 800, "failures": 0, "elapsed_seconds": 7200},
             {"state": "ready", "detail": "ok"},
         )
         operations = next(item for item in result["items"] if item["id"] == "operations")
-        self.assertEqual("attention", operations["state"])
-        self.assertIn("已实现", operations["detail"])
+        self.assertEqual("ready", operations["state"])
         self.assertIn("恢复演练", operations["detail"])
-        self.assertIn("启动项现场验收待完成", operations["detail"])
+        self.assertIn("已验收", operations["detail"])
 
     def test_failure_after_heartbeat_marks_soak_failed(self):
         with tempfile.TemporaryDirectory() as directory:
